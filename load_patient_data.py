@@ -10,16 +10,6 @@ data_dir = 'data/raw/clinical_data_tables'
 flat_files_dir = 'CoMMpass_IA9_FlatFiles'
 flat_files_dicts_dir = 'CoMMpass_IA9_FlatFile_Dictionaries'
 
-response_map = {
-    'Stringent Complete Response (sCR)': 6,
-    'Complete Response': 5,
-    'Very Good Partial Response (VGPR)': 4,
-    'Partial Response': 3,
-    'Stable Disease': 2,
-    'Progressive Disease': 1,
-    '': 0
-}
-
 
 def load_per_patient_data():
     """Load main patient info file"""
@@ -85,13 +75,6 @@ def load_per_visit_data():
     for label, type in fields.items():
         if type == str:
             data[label].fillna('', inplace=True)
-
-    # Convert treatment responses according to rank mapping. Set missing data to 0
-    treatment_responses = data['AT_TREATMENTRESP']
-    treatment_responses.replace(response_map, inplace=True)
-    data['AT_TREATMENTRESP'] = pd.to_numeric(data['AT_TREATMENTRESP'], errors='coerce')
-    data['AT_TREATMENTRESP'] = treatment_responses
-    fields['AT_TREATMENTRESP'] = np.int64
 
     return data, dict_data, fields
 
