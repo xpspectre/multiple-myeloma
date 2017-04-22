@@ -85,6 +85,9 @@ text = data[['PUBLIC_ID', 'VISIT']]
 #   Includes stem cell transplant status and whether patient is eligible for various treatments
 treat = data[['PUBLIC_ID', 'VISIT']]
 
+# Endpoints like death
+endp = data[['PUBLIC_ID', 'VISIT']]
+
 ########################################################################################################################
 # Keep PUBLIC_ID as main index
 
@@ -340,8 +343,125 @@ data.drop('IC_SPECREASON', axis=1, inplace=True)
 treat = treat.join(data['IC_THEPATIENTISA'].replace(yn_map))
 data.drop('IC_THEPATIENTISA', axis=1, inplace=True)
 
-# TODO: Left off on col 156
-#print(data['IC_URINEMPROTEIN'].unique())
+# Other surgery
+treat = treat.join(data['MMSURG_SPECIFY'])
+data.drop('MMSURG_SPECIFY', axis=1, inplace=True)
+treat = treat.join(data[['MMSURG_NONE', 'MMSURG_NONE', 'MMSURG_VERTEBROPLAST', 'MMSURG_KYPHOPLASTY', 'MMSURG_OTHER']].replace(yn_map))
+data.drop(['MMSURG_NONE', 'MMSURG_NONE', 'MMSURG_VERTEBROPLAST', 'MMSURG_KYPHOPLASTY', 'MMSURG_OTHER'], axis=1, inplace=True)
+
+# Peripheral neuropathy
+pres = pres.join(data['PN_WASANEUROLOGI'].replace(yn_map))
+data.drop('PN_WASANEUROLOGI', axis=1, inplace=True)
+date = date.join(data['PN_ASSESSMENTDAT'])
+data.drop('PN_ASSESSMENTDAT', axis=1, inplace=True)
+
+pn_present_map = {
+    '': np.nan,
+    'Not Done': np.nan,
+    'No': 0,
+    'Yes': 1
+}
+data = replace_map(data, 'PN_PERIPHERALSEN', pn_present_map)
+cats['PN_PERIPHERALSEN'] = pn_present_map
+
+pn_grade_map = {
+    '': np.nan,
+    'Grade 1: Asymptomatic; loss of deep tendon reflexes or parathesia.': 1,
+    'Grade 2: Moderate symptoms; limiting instrumental ADL.': 2,
+    'Grade 3: Severe symptoms; limiting self care ADL.': 3
+}
+data = replace_map(data, 'PN_IFYESINDICATE', pn_grade_map)
+cats['PN_IFYESINDICATE'] = pn_grade_map
+
+data = replace_map(data, 'PN_PERIPHERALMOT', pn_present_map)  # same map as base peripheral neuropathy present
+cats['PN_PERIPHERALMOT'] = pn_present_map
+
+pmn_grade_map = {
+    '': np.nan,
+    'Grade 1: Asymptomatic; clinical or diagnostic observations only; intervention not indicated': 1,
+    'Grade 2: Moderate symptoms; limiting instrumental ADL': 2,
+    'Grade 3: Severe symptoms; limiting self care ADL; assistive device indicated': 3
+}
+data = replace_map(data, 'PN_IFYESINDICATE2', pmn_grade_map)
+cats['PN_IFYESINDICATE2'] = pmn_grade_map
+
+# Emergency room visits since last study visit - keep these as features
+data = replace_yn(data, ['RU_DIDTHEPATIENT2', 'RU_DIDTHEPATIENT'])
+
+# Death and endpoint
+death_map = {
+    '': np.nan,
+    'Other': 0,
+    'Disease Progression': 1
+}
+endp = endp.join(data['SE_CAUSEOFDEATH'].replace(death_map))
+cats['SE_CAUSEOFDEATH'] = death_map
+endp = endp.join(data[['SE_DAYOFDEATH', 'SE_DAYPATIENTCO', 'SE_LASTKNOWNDAY']])
+endp = endp.join(data['SE_DIDPATIENTCOM'].replace(yn_map))
+data['SE_PRIMARYREASON'] = data['SE_PRIMARYREASON'] + ':' + data['SE_SPECIFY'] + ':' + data['SE_SPECIFY2']  # Join all-cause leaving trial
+endp = endp.join(data['SE_PRIMARYREASON'])
+data.drop(['SE_CAUSEOFDEATH', 'SE_DAYOFDEATH', 'SE_DAYPATIENTCO', 'SE_DIDPATIENTCOM', 'SE_LASTKNOWNDAY', 'SE_PRIMARYREASON', 'SE_SPECIFY', 'SE_SPECIFY2'], axis=1, inplace=True)
+
+# Supplemental treatments
+supp_treatments = ['SUPP_ANTICOAGULATI', 'SUPP_NONE', 'SUPP_TRANSFUSION', 'SUPP_PACKEDREDBLOO', 'SUPP_PLATELETS', 'SUPP_OTHER', 'SUPP_RADIOTHERAPY', 'SUPP_DIALYSIS', 'SUPP_BISPHOSPHONAT', 'SUPP_WBCGROWTHFACT', 'SUPP_ERYTHROPOIESI', 'SUPP_ANTIEMETIC', 'SUPP_ANALGESICSFOR', 'SUPP_OPIOID', 'SUPP_OTHER2', 'SUPP_ANTIVIRAL', 'SUPP_MEDICATIONSFO', 'SUPP_MEDICATIONSFO2']
+treat = treat.join(data[supp_treatments].replace(yn_map))
+data.drop(supp_treatments, axis=1, inplace=True)
+treat = treat.join(data[['SUPP_SPECIFY', 'SUPP_SPECIFYSITE']])
+data.drop(['SUPP_SPECIFY', 'SUPP_SPECIFYSITE'], axis=1, inplace=True)
+
+# Myeloma-specific related symptoms
+date = date.join(data['SS_DAYOFVISIT'])
+data.drop('SS_DAYOFVISIT', axis=1, inplace=True)
+data = replace_yn(data, ['SS_ISTHEPATIENTR', 'SS_DOESTHEPATIEN'])
+data = replace_checked(data, ['SS_SPINALCORDCOM', 'SS_BONEPAIN', 'SS_FATIGUE', 'SS_HYPERCALCEMIA', 'SS_RENALINSUFFIC', 'SS_ANEMIAHEMOGLO', 'SS_BONELESIONSLY', 'SS_BONELESIONSOS', 'SS_SOFTTISSUEPLA', 'SS_OFTTISSUEPLAS', 'SS_RECURRENTBACT', 'SS_SYMPTOMATICHY', 'SS_AMYLOIDOSIS', 'SS_OTHER'])
+text = text.join(data['SS_SPECIFY'])
+data.drop('SS_SPECIFY', axis=1, inplace=True)
+
+# Plasmacytoma/soft tissue
+# Combine these 2
+data['ST_PLASMACYTOMAN'] = data[['ST_PLASMACYTOMAN', 'ST_PLASMACYTOMAN2']].mean(axis=1)
+data.drop('ST_PLASMACYTOMAN2', axis=1, inplace=True)
+st_map = {
+    '': np.nan,
+    'No Change': 0,
+    'Yes': 1
+}
+data = replace_map(data, 'ST_INCREASEINNUM', st_map)
+cats['ST_INCREASEINNUM'] = st_map
+text = text.join(data['ST_RESULTOFEXAMI2'])
+data.drop('ST_RESULTOFEXAMI2', axis=1, inplace=True)
+pres = pres.join(data['ST_WASANASSESSME'].replace(yn_map))
+data.drop('ST_WASANASSESSME', axis=1, inplace=True)
+date = date.join(data['ST_ASSESSMENTDAT'])
+data.drop('ST_ASSESSMENTDAT', axis=1, inplace=True)
+data = replace_yn(data, ['ST_WEREANYSOFTTI'])
+st_num_map = {
+    '': np.nan,
+    'Single': 1,
+    'Multiple': 2
+}
+data = replace_map(data, 'ST_NUMBEROFPLASM', st_num_map)
+cats['ST_NUMBEROFPLASM'] = st_num_map
+data = replace_map(data, 'ST_WASTHEREACHAN', st_map)  # same map as above
+cats['ST_WASTHEREACHAN'] = st_map
+data = replace_map(data, 'ST_INCREASEINSIZE', st_map)  # same map as above
+cats['ST_INCREASEINSIZE'] = st_map
+st_result_map = {
+    '': np.nan,
+    'Reduction in size': -1,
+    'No change': 0,
+    'Increase in size': 1
+}
+data = replace_map(data, 'ST_RESULTOFEXAMI', st_result_map)
+cats['ST_RESULTOFEXAMI'] = st_result_map
+
+# Cytogenetics/chromosomal damage - this is the same as in the separate cytogenetic_data folder
+
+print(data['D_CM_enr'].unique())
+print(data['D_CM_ANEUPLOIDYCAT'].unique())
+print(data['D_CM_WASCONVENTION'].unique())
+
+# TODO: Left off on col 227
 
 # print(pres)
 # print(misc)
