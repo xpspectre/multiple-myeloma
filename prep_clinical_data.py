@@ -1,6 +1,9 @@
 # Main function that goes thru PER_PATIENT_VISIT clinical data table and turns it into a usable form
 # Goes thru columns manually and assess quality
 # A unique index is made from PUBLIC_ID + VISIT
+# TODO: Apply cols in pres to turn various rows of data into nan (especially those converted from 'Checked'/blank)
+# Note: I built a cytogenetic dataset from the website, but this dataset may also be used. I just drop it here
+#   Join this with the other dataset as needed
 
 from load_patient_data import load_per_visit_data
 import numpy as np
@@ -87,6 +90,10 @@ treat = data[['PUBLIC_ID', 'VISIT']]
 
 # Endpoints like death
 endp = data[['PUBLIC_ID', 'VISIT']]
+
+# Survey questions: bare q's and aggregated results
+survey = data[['PUBLIC_ID', 'VISIT']]
+survey_agg = data[['PUBLIC_ID', 'VISIT']]
 
 ########################################################################################################################
 # Keep PUBLIC_ID as main index
@@ -456,15 +463,245 @@ data = replace_map(data, 'ST_RESULTOFEXAMI', st_result_map)
 cats['ST_RESULTOFEXAMI'] = st_result_map
 
 # Cytogenetics/chromosomal damage - this is the same as in the separate cytogenetic_data folder
+# Drop unknown col
+data.drop('D_CM_enr', axis=1, inplace=True)
 
-print(data['D_CM_enr'].unique())
-print(data['D_CM_ANEUPLOIDYCAT'].unique())
-print(data['D_CM_WASCONVENTION'].unique())
+aneu_cat_map = {  # this is sort of ordinal, but unknown...
+    '': np.nan,
+    'Unknown': np.nan,
+    'Not Done': np.nan,
+    'None': 0,
+    'Hypodiploid(44-45 Chromosomes)': -1,
+    'Near diploid (44/45 to 46/47 Chromosomes)': 1,  # not "normal"
+    'Hyperdiploid(>46/47 Chromosomes)': 2,
+    'Hypotetraploid (near tetraploid) (>75 Chromosomes)': 3
+}
+data = replace_map(data, 'D_CM_ANEUPLOIDYCAT', aneu_cat_map)
+cats['D_CM_ANEUPLOIDYCAT'] = aneu_cat_map
 
-# TODO: Left off on col 227
+pres = pres.join(data['D_CM_WASCONVENTION'].replace(yn_map))
+data.drop('D_CM_WASCONVENTION', axis=1, inplace=True)
 
-# print(pres)
-# print(misc)
-# print(text)
-# print(data)
-# data.to_csv('test.csv')
+date = date.join(data['D_CM_DAYPERFORMED'])
+data.drop('D_CM_DAYPERFORMED', axis=1, inplace=True)
+
+misc = misc.join(data['D_CM_NUMBEROFCELLS'])
+data.drop('D_CM_NUMBEROFCELLS', axis=1, inplace=True)
+
+text = text.join(data[['D_CM_KARYOTYPE', 'D_CM_SPECIFIY']])
+data.drop(['D_CM_KARYOTYPE', 'D_CM_SPECIFIY'], axis=1, inplace=True)
+
+cyto_map = {
+    '': np.nan,
+    'Test not perf': np.nan,
+    'Indeterminant': np.nan,
+    'Normal': 0,
+    'Abnormal': 1
+}
+data = replace_map(data, 'D_CM_CYTOGENICSRES', cyto_map)
+cats['D_CM_CYTOGENICSRES'] = cyto_map
+
+# Keep D_CM_ABNORMALPERCE, D_CM_TOTALNUMBEROF, D_CM_abnres
+
+data = replace_checked(data, ['D_CM_DEL13', 'D_CM_DEL17', 'D_CM_T614', 'D_CM_1PDELETION', 'D_CM_T814', 'D_CM_1QAMPLIFICATI', 'D_CM_T1114', 'D_CM_OTHER'])
+
+pres = pres.join(data[['D_CM_cm', 'D_CM_abnmiss']])
+data.drop(['D_CM_cm', 'D_CM_abnmiss'], axis=1, inplace=True)
+
+# Drop redundant cols
+data.drop(['D_CM_cres', 'D_CM_aneu', 'D_CM_abnres'], axis=1, inplace=True)
+
+# D_IM (immunofluorescence?) stuff
+# Drop redundant cols
+data.drop(['D_IM_DCL_PATIENT_ID'], axis=1, inplace=True)
+
+date = date.join(data[['D_IM_COLLECTION_DAY', 'D_IM_PROCESSING_DAY']])
+data.drop(['D_IM_COLLECTION_DAY', 'D_IM_PROCESSING_DAY'], axis=1, inplace=True)
+
+misc = misc.join(data[['D_IM_PATIENTS__MMRF_ELIGIBILITY']])
+data.drop(['D_IM_PATIENTS__MMRF_ELIGIBILITY'], axis=1, inplace=True)
+
+# Convert descriptions to numbers - actually, use the pre-coded versions below
+# igh_map = {
+#     '': np.nan,
+#     'not recorded': np.nan,
+#     'unknown': np.nan,
+#     'Unknown': np.nan,
+#     'IgA': 1,
+#     'IgG': 2,
+#     'IgM': 3,
+#     'IgG, IgA': 4,
+#     'IgM, IgE, IgA': 5
+# }
+# data = replace_map(data, 'D_IM_IGH_SITE', igh_map)
+# cats['D_IM_IGH_SITE'] = igh_map
+#
+# igl_map = {
+#     '': np.nan,
+#     'not recorded': np.nan,
+#     'unknown': np.nan,
+#     'Unknown': np.nan,
+#     'Kappa': 1,
+#     'kappa': 1,
+#     'Kappa - light chain only': 1,
+#     'Lambda': 2,
+#     'Bi-Clonal': 3
+# }
+# data = replace_map(data, 'D_IM_IGL_SITE', igl_map)
+# cats['D_IM_IGL_SITE'] = igl_map
+
+# Keep D_IM_MORPHOLOGY_PERCENT_PC_IN_BM, D_IM_FLOWCYT_PCT_PC_IN_BM_LOW, D_IM_FLOWCYT_PCT_PC_IN_BM_HIGH, D_IM_MORPHOLOGY_PERCENT_PC_IN_PB, D_IM_FLOWCYT_PCT_PC_IN_PB_LOW, D_IM_FLOWCYT_PCT_PC_IN_PB_HIGH
+
+# Keep D_IM_CD38_DETECTED, D_IM_CD38_PC_PERCENT, D_IM_CD138_DETECTED, D_IM_CD138_PC_PERCENT, D_IM_CD45_PC_TYPICAL_DETECTED, D_IM_CD45_PC_PERCENT, D_IM_CD56_DETECTED, D_IM_CD56_PC_PERCENT
+
+# Convert descriptions to numbers - actually, use the pre-coded versions below
+# cd38_map = {
+#     '': np.nan,
+#     'Dim': 1,
+#     'Not Bright': 1,
+#     'Bright': 2,
+#     'bright': 2,
+#     'Very Bright': 3,
+#     'Two densities': 4  # may be intermediate
+# }
+# data = replace_map(data, 'D_IM_CD38_DESCRIPTION', cd38_map)
+# cats['D_IM_CD38_DESCRIPTION'] = cd38_map
+#
+# cd138_map = {
+#     '': np.nan,
+#     'Dim': 1,
+#     'Variable': 2,
+#     'Two densities': 3,
+#     '2 densities': 3
+# }
+# data = replace_map(data, 'D_IM_CD138_DESCRIPTION', cd138_map)
+# cats['D_IM_CD138_DESCRIPTION'] = cd138_map
+#
+# cd45_map = {
+#     '': np.nan,
+#     'neg': -1,
+#     'dim to neg': 0,
+#     'Dim to Neg': 0,
+#     'very dim': 1,
+#     'Very Dim': 1,
+#     'dim': 2,
+#     'Dim': 2,
+#     'Not Bright': 2,
+#     'slightly dim': 3,
+#     'Slightly Dim': 3,
+#     'Dim to Usual': 3,
+#     'usual': 4,
+#     'moderate': 4,
+#     'Bright': 5,
+#     'Very Bright': 6,
+#     'Variable': 7,
+#     'Two densities': 7,
+#     'Two Populations, 30% -/dim and 70% positive': 7
+# }
+# data = replace_map(data, 'D_IM_CD45_DESCRIPTION', cd45_map)
+# cats['D_IM_CD45_DESCRIPTION'] = cd45_map
+#
+# cd56_map = {
+#     '': np.nan,
+#     'Dim to Neg': 0,  # not sure about the numbers
+#     'dim': 1,
+#     'Dim': 1,
+#     '0': 1,
+#     'Not Bright': 1,
+#     'moderate': 2,
+#     'Moderate': 2,
+#     'Bright': 3,
+#     'bright': 3,
+#     'Very Bright': 4,
+#     '100': 4,
+#     'Two densities': 5
+# }
+# data = replace_map(data, 'D_IM_CD56_DESCRIPTION', cd56_map)
+# cats['D_IM_CD56_DESCRIPTION'] = cd56_map
+#
+# data = replace_map(data, 'D_IM_LIGHT_CHAIN_BY_FLOW', igl_map)
+# cats['D_IM_LIGHT_CHAIN_BY_FLOW'] = igl_map
+
+# Keep the other CD's as is
+# Keep FGFR3
+
+# Keep D_IM_FLOWCYT_PCT_ANEUPLOID_POPUL
+# Keep D_IM_DNA_INDEX, D_IM_BRAF_STATUS
+
+# Drop IM cols that are otherwise coded
+data.drop(['D_IM_IGH_SITE', 'D_IM_IGL_SITE', 'D_IM_CD38_DESCRIPTION', 'D_IM_CD138_DESCRIPTION', 'D_IM_CD45_DESCRIPTION', 'D_IM_CD56_DESCRIPTION', 'D_IM_LIGHT_CHAIN_BY_FLOW'], axis=1, inplace=True)
+
+data = replace_map(data, 'D_IM_BRAF_CDNA_VARIANT', {'': np.nan})
+
+braf_map = {
+    '': np.nan,
+    'V600E': 1
+}
+data = replace_map(data, 'D_IM_BRAF_PROTEIN_VARIANT', braf_map)
+cats['D_IM_BRAF_PROTEIN_VARIANT'] = braf_map
+
+# Keep coded descs
+
+date = date.join(data[['D_IM_mrgday']])
+data.drop(['D_IM_mrgday'], axis=1, inplace=True)
+
+misc = misc.join(data[['D_IM_BONE_REASONFORPROC', 'D_IM_BONE_SPECIFY2']])
+data.drop(['D_IM_BONE_REASONFORPROC', 'D_IM_BONE_SPECIFY2'], axis=1, inplace=True)
+
+# Keep correlated disease progression?
+
+data.drop(['D_IM_enr'], axis=1, inplace=True)
+
+# Keep derived reason for sample?
+
+date = date.join(data[['D_IM_crdiff', 'D_IM_pddiff']])
+data.drop(['D_IM_crdiff', 'D_IM_pddiff'], axis=1, inplace=True)
+
+# Flags for acceptable samples
+pres = pres.join(data[['D_IM_det_plasma_cells', 'D_IM_detectable', 'D_IM_kaplam', 'D_IM_crhit', 'D_IM_pdhit', 'D_IM_hit']])
+data.drop(['D_IM_det_plasma_cells', 'D_IM_detectable', 'D_IM_kaplam', 'D_IM_crhit', 'D_IM_pdhit', 'D_IM_hit'], axis=1, inplace=True)
+
+# Lab results - keep all numeric lab results
+
+# Survey questions
+col_names = list(data)
+
+q1_ind = col_names.index('D_QOL_Q1')
+q50_ind = col_names.index('D_QOL_Q50')
+survey = survey.join(data.ix[:, q1_ind:q50_ind+1])
+
+q_sum_start_ind = col_names.index('D_QOL_mPF2')
+q_sum_end_ind = col_names.index('D_QOL_MYSE')
+survey_agg = survey_agg.join(data.ix[:, q_sum_start_ind:q_sum_end_ind+1])
+
+pres = pres.join(data[['D_QOL_QLQ_MY20', 'D_QOL_QLQ_C30']].replace(yn_map))
+date = date.join(data[['D_QOL_QOL_DY']])
+
+q_start_ind = col_names.index('D_QOL_Q1')
+q_end_ind = col_names.index('D_QOL_enr')
+data.drop(data.columns[q_start_ind:q_end_ind+1], axis=1, inplace=True)
+
+# Drop 2nd set of cytogenetic data
+# TODO: Process this stuff and use it as the definitive source
+#   There seems to be more here
+col_names = list(data)
+cyto_2_start_ind = col_names.index('D_TRI_CF_T1420ABNORMAL')
+cyto_2_end_ind = col_names.index('Other_cytogenetic_analysis')
+data.drop(data.columns[cyto_2_start_ind:cyto_2_end_ind+1], axis=1, inplace=True)
+
+# TODO: Last few cols
+
+# print(data['D_QOL_QLQ_MY20'].unique())
+
+# Save processed tables
+output_dir = 'data/processed'
+data.to_csv(os.path.join(output_dir, 'clinical_data.csv'))
+pres.to_csv(os.path.join(output_dir, 'clinical_pres.csv'))
+text.to_csv(os.path.join(output_dir, 'clinical_text.csv'))
+misc.to_csv(os.path.join(output_dir, 'clinical_misc.csv'))
+date.to_csv(os.path.join(output_dir, 'clinical_date.csv'))
+treat.to_csv(os.path.join(output_dir, 'clinical_treat.csv'))
+endp.to_csv(os.path.join(output_dir, 'clinical_endp.csv'))
+survey.to_csv(os.path.join(output_dir, 'clinical_survey.csv'))
+survey_agg.to_csv(os.path.join(output_dir, 'clinical_survey_agg.csv'))
+
