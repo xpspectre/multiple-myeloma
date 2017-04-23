@@ -330,6 +330,9 @@ data.drop(['IC_DIDTHEPATIENT', 'IC_OTHREASON'], axis=1, inplace=True)
 # All the patients are over 18 yo
 data.drop(['IC_PATIENTISATLE'], axis=1, inplace=True)
 
+# Keep the patient support system enrollment question
+data = replace_yn(data, ['IC_PARTICIPATEPSS'])
+
 # Keep the important cols mixed in with them...
 #   Last 2 of these are elevated/not?
 data = replace_yn(data, ['IC_INVOLVEDFREEL', 'IC_PATIENTHADANO', 'IC_SERUMMPROTEIN', 'IC_URINEMPROTEIN'])
@@ -681,27 +684,188 @@ q_start_ind = col_names.index('D_QOL_Q1')
 q_end_ind = col_names.index('D_QOL_enr')
 data.drop(data.columns[q_start_ind:q_end_ind+1], axis=1, inplace=True)
 
-# Drop 2nd set of cytogenetic data
-# TODO: Process this stuff and use it as the definitive source
-#   There seems to be more here
-col_names = list(data)
-cyto_2_start_ind = col_names.index('D_TRI_CF_T1420ABNORMAL')
-cyto_2_end_ind = col_names.index('Other_cytogenetic_analysis')
-data.drop(data.columns[cyto_2_start_ind:cyto_2_end_ind+1], axis=1, inplace=True)
+# Keep cols with percent abonrmal cells
+#   D_TRI_CF_T1420ABNORMAL, D_TRI_CF_1PDELETIONABN, D_TRI_CF_1PAMPLIFICATI2, D_TRI_CF_P53LOCUSCHROM2,
+#   D_TRI_CF_OTHERSPECIFYA, D_TRI_CF_OTHERSPECIFYA2
 
-# TODO: Last few cols
+# Keep cols with number abnormal cells
+#   D_TRI_CF_1PDELETIONOFA, D_TRI_CF_1QAMPLIFICATI, D_TRI_CF_P53LOCUSCHROM3, D_TRI_CF_OTHEROFABNORM
 
-# print(data['D_QOL_QLQ_MY20'].unique())
+# Drop cols that just say the result is unknown - these don't seem to correspond to anything
+data.drop(['D_TRI_CF_T1420', 'D_TRI_CF_CCOUNT1PUN', 'D_TRI_CF_ICELLS1PUN', 'D_TRI_CF_1PDELETIONUN',
+           'D_TRI_CF_CCOUNT1QUN', 'D_TRI_CF_ICELLS1QUN', 'D_TRI_CF_1PAMPUN', 'D_TRI_CF_CCOUNTP53UN',
+           'D_TRI_CF_ICELLSP53UN', 'D_TRI_CF_P53LOCUN', 'D_TRI_CF_CCOUNTOTHERUN', 'D_TRI_CF_ICELLSOTHERUN',
+           'D_TRI_CF_OTHERSPECUN', 'D_TRI_CF_CCOUNTOTHER2UN', 'D_TRI_CF_ICELLSOTHER2UN', 'D_TRI_CF_OTHERSPEC2UN',
+           ], axis=1, inplace=True)
+
+# Drop cols of counts of cells - not useful features
+data.drop(['D_TRI_CF_1PDELETIONOFC', 'D_TRI_CF_1PAMPLIFICATI', 'D_TRI_CF_P53LOCUSCHROM', 'D_TRI_CF_OTHERSPECIFYO',
+           'D_TRI_CF_OTHEROFABNORM2', 'D_TRI_CF_OTHERSPECIFYO2'], axis=1, inplace=True)
+
+# Presence/absence of abnormalities
+p1del_map = {
+    '': np.nan,
+    '.': np.nan,
+    'Not Done': np.nan,
+    'No': 0,
+    'Yes': 1,
+}
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR12', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR12'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR13', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR13'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMAILITYP', p1del_map)
+cats['D_TRI_CF_ABNORMAILITYP'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR14', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR14'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR15', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR15'] = p1del_map
+
+# Freeform text
+text = text.join(data[['D_TRI_CF_SPECIFY2', 'D_TRI_CF_SPECIFY3']])
+data.drop(['D_TRI_CF_SPECIFY2', 'D_TRI_CF_SPECIFY3'], axis=1, inplace=True)
+
+# Trisomies
+data = replace_checked(data, ['D_TRI_CF_TRISOMIES3', 'D_TRI_CF_TRISOMIES5', 'D_TRI_CF_TRISOMIES7', 'D_TRI_CF_TRISOMIES9', 'D_TRI_CF_TRISOMIES11', 'D_TRI_CF_TRISOMIES15', 'D_TRI_CF_TRISOMIES19', 'D_TRI_CF_TRISOMIES21', 'D_TRI_CF_TRISOMIESOTH'])
+text = text.join(data[['D_TRI_CF_SPECIFY']])
+data.drop(['D_TRI_CF_SPECIFY'], axis=1, inplace=True)
+
+# Drop redundant no or unknown trisomies - they will be nans in the above cols
+data.drop(['D_TRI_CF_TRISOMIESNONE', 'D_TRI_CF_TRISOMIESUNK', 'D_TRI_CF_TRISOMIESNTRPTD'], axis=1, inplace=True)
+
+# Drop redundant trisomy col that reports presence
+data.drop(['D_TRI_CF_TRISOMIES'], axis=1, inplace=True)
+
+# Metadata
+pres = pres.join(data[['D_TRI_CF_WASCYTOGENICS', 'D_TRI_CF_WASCLGFISHORP']].replace(yn_map))
+data.drop(['D_TRI_CF_WASCYTOGENICS', 'D_TRI_CF_WASCLGFISHORP'], axis=1, inplace=True)
+
+date = date.join(data['D_TRI_CF_DAYPERFORMED'])
+data.drop('D_TRI_CF_DAYPERFORMED', axis=1, inplace=True)
+
+# Another block of classes of abnormalities
+# Keep cols with percent abonrmal cells
+#   D_TRI_CF_DEL13ABNORMAL, D_TRI_CF_13QABNORMALCE, D_TRI_CF_DEL17ABNORMAL, D_TRI_CF_17PABNORMALCE,
+#   D_TRI_CF_T414ABNORMALC, D_TRI_CF_T614ABNORMALC, D_TRI_CF_T814ABNORMALC, D_TRI_CF_T1114OFABNORM,
+#   D_TRI_CF_T1114ABNORMAL, D_TRI_CF_T1214ABNORMAL, D_TRI_CF_T1416OFABNORM, D_TRI_CF_T1416ABNORMAL,
+#
+
+# Keep cols with number abnormal cells
+#   D_TRI_CF_DEL13QOFABNOR, D_TRI_CF_DEL17OFABNORM, D_TRI_CF_DEL17POFABNOR, D_TRI_CF_T414OFABNORMA,
+#   D_TRI_CF_T814OFABNORMA, D_TRI_CF_T1214OFABNORM, D_TRI_CF_T1420OFABNORM,
+
+# Drop cols that just say the result is unknown - these don't seem to correspond to anything
+data.drop(['D_TRI_CF_CCOUNTDEL13UN', 'D_TRI_CF_ICELLDEL13UN', 'D_TRI_CF_DEL13UN', 'D_TRI_CF_CCOUNTDEL13QUN',
+           'D_TRI_CF_ICELLSDEL13UN', 'D_TRI_CF_DEL12QUN', 'D_TRI_CF_CCOUNTDEL17UN', 'D_TRI_CF_ICELLSDEL17UN',
+           'D_TRI_CF_DEL17UN', 'D_TRI_CF_CCOUNTDEL17PUN', 'D_TRI_CF_ICELLSDEL17PUN', 'D_TRI_CF_DEL17P',
+           'D_TRI_CF_CCOUNTT414UN', 'D_TRI_CF_ICELLST414UN', 'D_TRI_CF_T414UN', 'D_TRI_CF_CCOUNTT614UN',
+           'D_TRI_CF_ICELLST614UN', 'D_TRI_CF_T614UN', 'D_TRI_CF_CCOUNTT814UN', 'D_TRI_CF_ICELLST814UN',
+           'D_TRI_CF_T814UN', 'D_TRI_CF_CCOUNTT1114UN', 'D_TRI_CF_ICELLST1114UN', 'D_TRI_CF_T1114UN',
+           'D_TRI_CF_CCOUNTT1214UN', 'D_TRI_CF_ICELLST1214UN', 'D_TRI_CF_T1214UN', 'D_TRI_CF_CCOUNTT1416UN',
+           'D_TRI_CF_ICELLST1416', 'D_TRI_CF_T1416', 'D_TRI_CF_CCOUNTT1420UN', 'D_TRI_CF_ICELLST1420'
+           ], axis=1, inplace=True)
+
+# Drop cols of counts of cells - not useful features
+data.drop(['D_TRI_CF_DEL13OFABNORM', 'D_TRI_CF_DEL13OFCELLSE', 'D_TRI_CF_13QOFCELLSEXA', 'D_TRI_CF_DEL17OFCELLSE',
+           'D_TRI_CF_17POFCELLSEXA', 'D_TRI_CF_T414OFCELLSEX', 'D_TRI_CF_T614OFABNORMA', 'D_TRI_CF_T614OFCELLSEX',
+           'D_TRI_CF_T814OFCELLSEX', 'D_TRI_CF_T1114OFCELLSE', 'D_TRI_CF_T1214OFCELLSE', 'D_TRI_CF_T1416OFCELLSE',
+           'D_TRI_CF_T1420OFCELLSE',
+           ], axis=1, inplace=True)
+
+# Presence/absence of abnormalities
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR10', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR10'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR2', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR2'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR11', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR11'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR3', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR3'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR4', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR4'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR5', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR5'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR6', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR6'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR7', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR7'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR8', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR8'] = p1del_map
+
+data = replace_map(data, 'D_TRI_CF_ABNORMALITYPR9', p1del_map)
+cats['D_TRI_CF_ABNORMALITYPR9'] = p1del_map
+
+# More metadata - number versions of above
+pres = pres.join(data[['D_TRI_cf', 'D_TRI_clg']])
+data.drop(['D_TRI_cf', 'D_TRI_clg'], axis=1, inplace=True)
+
+# Keep cols for present/absent
+# Note/TODO: These semi-redundant with above - keep the ones at the level of granularity we want
+#   D_TRI_abn1, D_TRI_abn3, D_TRI_abn4, D_TRI_abn5, D_TRI_abn6, D_TRI_abn7, D_TRI_abn8, D_TRI_abn9, D_TRI_abn10,
+#   D_TRI_abn12, D_TRI_abn13, D_TRI_abnoth
+# Drop redundant cols
+data.drop(['D_TRI_missabn', 'D_TRI_noneabn'], axis=1, inplace=True)
+# Drop more redundant trisomies data
+data.drop(['D_TRI_trisomies', 'D_TRI_trisnd', 'D_TRI_trisnone'], axis=1, inplace=True)
+
+# Another hyperdiploid measure
+data = replace_yn(data, ['Hyperdiploid'])
+
+# Drop missing CM versions of the translocation tests
+data.drop(['CM_ABNORMALITYPR9', 'CM_ABNORMALITYPR3', 'CM_ABNORMALITYPR8'], axis=1, inplace=True)
+
+# Drop study name data
+data.drop(['STUDY_ID'], axis=1, inplace=True)
+
+# Grab Palumbo cytogenetic tests
+data = replace_map(data, 'Deletion_17q13', p1del_map)
+cats['Deletion_17q13'] = p1del_map
+
+# Drop a col with only 2 entries
+data.drop(['Other_cytogenetic_analysis'], axis=1, inplace=True)
+
+# AT data?
+data = replace_map(data, 'AT_ABSENCEOFCLON', p1del_map)
+cats['AT_ABSENCEOFCLON'] = p1del_map
+
+# Keep 2nd col of disease progression
+#   TODO: compare to other col, merge?
+data = replace_map(data, 'AT_CDRREVIEWPERI', response_map)
+cats['AT_CDRREVIEWPERI'] = response_map
+
+# Semi-structured text
+text = text.join(data[['AT_CDRCOMMENTPER']])
+data.drop(['AT_CDRCOMMENTPER'], axis=1, inplace=True)
+
+
+# TODO: Last few cols, start on 601
+
+# print(data['Hyperdiploid'].unique())
 
 # Save processed tables
 output_dir = 'data/processed'
 data.to_csv(os.path.join(output_dir, 'clinical_data.csv'))
-pres.to_csv(os.path.join(output_dir, 'clinical_pres.csv'))
-text.to_csv(os.path.join(output_dir, 'clinical_text.csv'))
-misc.to_csv(os.path.join(output_dir, 'clinical_misc.csv'))
-date.to_csv(os.path.join(output_dir, 'clinical_date.csv'))
-treat.to_csv(os.path.join(output_dir, 'clinical_treat.csv'))
-endp.to_csv(os.path.join(output_dir, 'clinical_endp.csv'))
-survey.to_csv(os.path.join(output_dir, 'clinical_survey.csv'))
-survey_agg.to_csv(os.path.join(output_dir, 'clinical_survey_agg.csv'))
+# pres.to_csv(os.path.join(output_dir, 'clinical_pres.csv'))
+# text.to_csv(os.path.join(output_dir, 'clinical_text.csv'))
+# misc.to_csv(os.path.join(output_dir, 'clinical_misc.csv'))
+# date.to_csv(os.path.join(output_dir, 'clinical_date.csv'))
+# treat.to_csv(os.path.join(output_dir, 'clinical_treat.csv'))
+# endp.to_csv(os.path.join(output_dir, 'clinical_endp.csv'))
+# survey.to_csv(os.path.join(output_dir, 'clinical_survey.csv'))
+# survey_agg.to_csv(os.path.join(output_dir, 'clinical_survey_agg.csv'))
 
