@@ -2,8 +2,9 @@
 # Goes thru columns manually and assess quality
 # A unique index is made from PUBLIC_ID + VISIT
 # TODO: Apply cols in pres to turn various rows of data into nan (especially those converted from 'Checked'/blank)
-# Note: I built a cytogenetic dataset from the website, but this dataset may also be used. I just drop it here
-#   Join this with the other dataset as needed
+#   This is done for data table only. If we want to look at other tables, apply this to them as well
+# Note: This dataset has 2 cytogenetics blocks: conventional and fluorescence
+#   Combine them somehow
 
 from load_patient_data import load_per_visit_data
 import numpy as np
@@ -18,9 +19,10 @@ yn_map = {
     '': np.nan
 }
 
+# Check marks indicate yes, blanks indicate no, but note that other metadata cols may indicate these should be NaN
 checked_map = {
     'Checked': 1,
-    '': 0  # Note: This may be changed to nan, if that makes more sense
+    '': 0
 }
 
 
@@ -107,6 +109,8 @@ data.drop('VJ_INTERVAL', axis=1, inplace=True)
 # Drop informed consent day
 data.drop('VISITDY', axis=1, inplace=True)
 
+########################################################################################################################
+
 # Bone lesions check: Either 'checked' -> 1 or blank -> NaN
 pres = pres.join(data['AT_DEFINITEDEVEL'].replace(yn_map))
 data.drop('AT_DEFINITEDEVEL', axis=1, inplace=True)
@@ -135,12 +139,21 @@ cats['AT_TREATMENTRESP'] = response_map
 # Basic checks on worsening conditions
 data = replace_checked(data, ['AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', 'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF'])
 
+# Go back and ensure:
+#   NaN to unassessed patients
+assessed = pres['AT_WASANASSESSME'] == 1
+replace_cols = ['AT_DEFINITEDEVEL', 'AT_TREATMENTRESP', 'AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', 'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan
+
+########################################################################################################################
 # Bone marrow aspriate useful?
-pres = add_checked_cols(pres, ['BMA_WASTHESCREENI'])
+pres = pres.join(data['BMA_WASTHESCREENI'].replace(yn_map))
 data.drop('BMA_WASTHESCREENI', axis=1, inplace=True)
 
+########################################################################################################################
 # Bone marrow assessment done?
-pres = add_checked_cols(pres, ['BA_WASABONEASSES'])
+pres = pres.join(data['BA_WASABONEASSES'].replace(yn_map))
 data.drop('BA_WASABONEASSES', axis=1, inplace=True)
 
 # Bone assessment fields
@@ -154,10 +167,10 @@ data.drop(['BA_TYPEOFBONEASS', 'BA_SPECIFY'], axis=1, inplace=True)
 
 # Assign bone interpretation categories
 bone_interp_map = {
+    'Clinically significant abnormality related to MM': 2,
+    'Clinically significant abnormality unrelated to MM': 1,
+    'Normal or clinically insignificant abnormality': 0,
     '': np.nan,
-    'Clinically significant abnormality related to MM': 1,
-    'Clinically significant abnormality unrelated to MM': 2,
-    'Normal or clinically insignificant abnormality': 3
 }
 data = replace_map(data, 'BA_IMAGEINTERPRE', bone_interp_map)
 cats['BA_IMAGEINTERPRE'] = bone_interp_map
@@ -181,6 +194,17 @@ data = replace_checked(data, ['BA_OSTEOPENIAOST', 'BA_PATHOLOGICFRA', 'BA_MULTIP
 text = text.join(data['BA_SPECIFY2'])
 data.drop('BA_SPECIFY2', axis=1, inplace=True)
 
+# Go back and ensure:
+#   0 to assessed patients with no abnormality
+#   NaN to unassessed patients
+assessed = pres['BA_WASABONEASSES'] == 1
+no_abnormal = data['BA_IMAGEINTERPRE'] == 0
+replace_cols = ['BA_LYTICLESIONS', 'BA_OFLYTICLESION', 'BA_OSTEOPENIAOST',  'BA_PATHOLOGICFRA', 'BA_MULTIPLEDISSE', 'BA_SKULL', 'BA_SPINE', 'BA_CERVICAL', 'BA_THORACIC', 'BA_LUMBAR', 'BA_SACRAL', 'BA_PELVIS', 'BA_RIGHT', 'BA_LEFT', 'BA_FEMUR', 'BA_RIGHT2', 'BA_LEFT2', 'BA_HUMERUS', 'BA_RIGHT3', 'BA_LEFT3', 'BA_RIBS', 'BA_RIGHT4', 'BA_LEFT4', 'BA_OTHER', 'BA_NUMBERAFFECTE', 'BA_NUMBERAFFECTE2']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan  # does the work
+    data.loc[no_abnormal == 1, col] = 0  # shouldn't be necessary
+
+########################################################################################################################
 # Other reason for procedure. AML seems significant and weird but others seem like normal
 misc = misc.join(data[['BB_SPECIFY', 'BB_REASONFORPROC']])
 data.drop(['BB_SPECIFY', 'BB_REASONFORPROC'], axis=1, inplace=True)
@@ -207,8 +231,20 @@ date = date.join(data['BB_DAYOFCOLLECT'])
 data.drop('BB_DAYOFCOLLECT', axis=1, inplace=True)
 
 # Reason for invalid bone biopsy/aspirate
-misc = misc.join(data[['BB_IFNOPLEASESPE', 'BONE_SPECIFY', 'BONE_IFNOPLEASESPE', 'BONE_IFNOPLEASESPE2']])
-data.drop(['BB_IFNOPLEASESPE', 'BONE_SPECIFY', 'BONE_IFNOPLEASESPE', 'BONE_IFNOPLEASESPE2'], axis=1, inplace=True)
+misc = misc.join(data[['BB_IFNOPLEASESPE']])
+data.drop(['BB_IFNOPLEASESPE'], axis=1, inplace=True)
+
+# Go back and ensure:
+#   NaN to unassessed and invalid results patients
+assessed = (pres['BB_WASABONEMARRO'] == 1) & (pres['BB_WASBIOPSYSPEC'] == 1)
+replace_cols = ['BB_CELLULARITY', 'BB_PERCENTOFPLAS']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan
+
+########################################################################################################################
+misc = misc.join(data[['BONE_SPECIFY', 'BONE_IFNOPLEASESPE', 'BONE_IFNOPLEASESPE2']])
+data.drop(['BONE_SPECIFY', 'BONE_IFNOPLEASESPE', 'BONE_IFNOPLEASESPE2'], axis=1, inplace=True)
+
 pres = pres.join(data['BONE_WASTHEASPIRAT'].replace(yn_map))
 data.drop('BONE_WASTHEASPIRAT', axis=1, inplace=True)
 pres = pres.join(data['BONE_WASABONEMARRO'].replace(yn_map))
@@ -284,6 +320,7 @@ pres = add_checked_cols(pres, ['BONE_RANGEOFPLASMA', 'BONE_PC11', 'BONE_RANGEOFP
 data.drop(['BONE_RANGEOFPLASMA', 'BONE_PC11', 'BONE_RANGEOFPLASMA7', 'BONE_NOTDONEUNKNOW'], axis=1, inplace=True)
 # Keep actual val BONE_PC5
 # Keep lo and hi measurements BONE_RANGELOW6 and BONE_RANGEHIGH6
+
 misc = misc.join(data['BONE_DOESTHEPCRESU'])
 data.drop('BONE_DOESTHEPCRESU', axis=1, inplace=True)
 
@@ -291,6 +328,14 @@ data.drop('BONE_DOESTHEPCRESU', axis=1, inplace=True)
 pres = pres.join(data['BONE_WASTHESPECIME'].replace(yn_map))
 data.drop('BONE_WASTHESPECIME', axis=1, inplace=True)
 
+# Go back and ensure:
+#   NaN to unassessed patients for significant cols handled by replace_checked
+assessed = pres['BONE_WASABONEMARRO'] == 1
+replace_cols = ['BONE_PERCENTOFPLAS3', 'BONE_PC']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan
+
+########################################################################################################################
 # Bone marrow transplant
 treat = treat.join(data['BMT_WASABONEMARRO'].replace(yn_map))
 data.drop('BMT_WASABONEMARRO', axis=1, inplace=True)
@@ -304,6 +349,7 @@ data.drop('BMT_SPECIFY', axis=1, inplace=True)  # All empty
 treat = treat.join(data['BMT_NUMBER'])
 data.drop('BMT_NUMBER', axis=1, inplace=True)
 
+########################################################################################################################
 # ECOG: patient function assessments
 ecog_map = {
     '': np.nan,
@@ -323,6 +369,9 @@ data.drop('ECOG_WASANECOGASSE', axis=1, inplace=True)
 date = date.join(data['ECOG_ASSESSMENTDAT'])
 data.drop('ECOG_ASSESSMENTDAT', axis=1, inplace=True)
 
+# ECOG_PERFORMANCEST col contains number or NaN as appropriate if the test was taken
+
+########################################################################################################################
 # Drop informed consent cols
 data.drop(['IC_DAYOFINFORME', 'IC_DAYOFVISIT', 'IC_DAYUNIVERSAL', 'IC_HASTHEPATIENT', 'IC_IFYESPLEASEPR', 'IC_IPERMITMYSAMP', 'IC_IPERMITMYSAMP2', 'IC_IPERMITRESEAR', 'IC_PATIENTHASREA', 'IC_WASTHISPATIEN2'], axis=1, inplace=True)
 # Drop a couple more cols that are probably not important...
@@ -353,12 +402,14 @@ data.drop('IC_SPECREASON', axis=1, inplace=True)
 treat = treat.join(data['IC_THEPATIENTISA'].replace(yn_map))
 data.drop('IC_THEPATIENTISA', axis=1, inplace=True)
 
+########################################################################################################################
 # Other surgery
 treat = treat.join(data['MMSURG_SPECIFY'])
 data.drop('MMSURG_SPECIFY', axis=1, inplace=True)
 treat = treat.join(data[['MMSURG_NONE', 'MMSURG_NONE', 'MMSURG_VERTEBROPLAST', 'MMSURG_KYPHOPLASTY', 'MMSURG_OTHER']].replace(yn_map))
 data.drop(['MMSURG_NONE', 'MMSURG_NONE', 'MMSURG_VERTEBROPLAST', 'MMSURG_KYPHOPLASTY', 'MMSURG_OTHER'], axis=1, inplace=True)
 
+########################################################################################################################
 # Peripheral neuropathy
 pres = pres.join(data['PN_WASANEUROLOGI'].replace(yn_map))
 data.drop('PN_WASANEUROLOGI', axis=1, inplace=True)
@@ -395,6 +446,9 @@ pmn_grade_map = {
 data = replace_map(data, 'PN_IFYESINDICATE2', pmn_grade_map)
 cats['PN_IFYESINDICATE2'] = pmn_grade_map
 
+# These cols contain number or NaN as appropriate if the test was taken
+
+########################################################################################################################
 # Emergency room visits since last study visit - keep these as features
 data = replace_yn(data, ['RU_DIDTHEPATIENT2', 'RU_DIDTHEPATIENT'])
 
@@ -412,6 +466,7 @@ data['SE_PRIMARYREASON'] = data['SE_PRIMARYREASON'] + ':' + data['SE_SPECIFY'] +
 endp = endp.join(data['SE_PRIMARYREASON'])
 data.drop(['SE_CAUSEOFDEATH', 'SE_DAYOFDEATH', 'SE_DAYPATIENTCO', 'SE_DIDPATIENTCOM', 'SE_LASTKNOWNDAY', 'SE_PRIMARYREASON', 'SE_SPECIFY', 'SE_SPECIFY2'], axis=1, inplace=True)
 
+########################################################################################################################
 # Supplemental treatments
 supp_treatments = ['SUPP_ANTICOAGULATI', 'SUPP_NONE', 'SUPP_TRANSFUSION', 'SUPP_PACKEDREDBLOO', 'SUPP_PLATELETS', 'SUPP_OTHER', 'SUPP_RADIOTHERAPY', 'SUPP_DIALYSIS', 'SUPP_BISPHOSPHONAT', 'SUPP_WBCGROWTHFACT', 'SUPP_ERYTHROPOIESI', 'SUPP_ANTIEMETIC', 'SUPP_ANALGESICSFOR', 'SUPP_OPIOID', 'SUPP_OTHER2', 'SUPP_ANTIVIRAL', 'SUPP_MEDICATIONSFO', 'SUPP_MEDICATIONSFO2']
 treat = treat.join(data[supp_treatments].replace(yn_map))
@@ -419,18 +474,33 @@ data.drop(supp_treatments, axis=1, inplace=True)
 treat = treat.join(data[['SUPP_SPECIFY', 'SUPP_SPECIFYSITE']])
 data.drop(['SUPP_SPECIFY', 'SUPP_SPECIFYSITE'], axis=1, inplace=True)
 
+########################################################################################################################
 # Myeloma-specific related symptoms
+#   SS_ISTHEPATIENTR reports follow-up visits. This block includes follow-up visits and baseline.
+#   A good col to indicate whether results should be present is SS_DAYOFVISIT not NaN
 date = date.join(data['SS_DAYOFVISIT'])
 data.drop('SS_DAYOFVISIT', axis=1, inplace=True)
-data = replace_yn(data, ['SS_ISTHEPATIENTR', 'SS_DOESTHEPATIEN'])
+pres = pres.join(data['SS_ISTHEPATIENTR'].replace(yn_map))
+data.drop('SS_ISTHEPATIENTR', axis=1, inplace=True)
+
+data = replace_yn(data, ['SS_DOESTHEPATIEN'])
 data = replace_checked(data, ['SS_SPINALCORDCOM', 'SS_BONEPAIN', 'SS_FATIGUE', 'SS_HYPERCALCEMIA', 'SS_RENALINSUFFIC', 'SS_ANEMIAHEMOGLO', 'SS_BONELESIONSLY', 'SS_BONELESIONSOS', 'SS_SOFTTISSUEPLA', 'SS_OFTTISSUEPLAS', 'SS_RECURRENTBACT', 'SS_SYMPTOMATICHY', 'SS_AMYLOIDOSIS', 'SS_OTHER'])
 text = text.join(data['SS_SPECIFY'])
 data.drop('SS_SPECIFY', axis=1, inplace=True)
 
+# Go back and ensure:
+#   NaN to unassessed patients
+assessed = pd.notnull(date['SS_DAYOFVISIT'])
+replace_cols = ['SS_SPINALCORDCOM', 'SS_BONEPAIN', 'SS_FATIGUE', 'SS_HYPERCALCEMIA', 'SS_RENALINSUFFIC', 'SS_ANEMIAHEMOGLO', 'SS_BONELESIONSLY', 'SS_BONELESIONSOS', 'SS_SOFTTISSUEPLA', 'SS_OFTTISSUEPLAS', 'SS_RECURRENTBACT', 'SS_SYMPTOMATICHY', 'SS_AMYLOIDOSIS', 'SS_OTHER']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan
+
+########################################################################################################################
 # Plasmacytoma/soft tissue
 # Combine these 2
 data['ST_PLASMACYTOMAN'] = data[['ST_PLASMACYTOMAN', 'ST_PLASMACYTOMAN2']].mean(axis=1)
 data.drop('ST_PLASMACYTOMAN2', axis=1, inplace=True)
+
 st_map = {
     '': np.nan,
     'No Change': 0,
@@ -438,12 +508,15 @@ st_map = {
 }
 data = replace_map(data, 'ST_INCREASEINNUM', st_map)
 cats['ST_INCREASEINNUM'] = st_map
+
 text = text.join(data['ST_RESULTOFEXAMI2'])
 data.drop('ST_RESULTOFEXAMI2', axis=1, inplace=True)
+
 pres = pres.join(data['ST_WASANASSESSME'].replace(yn_map))
 data.drop('ST_WASANASSESSME', axis=1, inplace=True)
 date = date.join(data['ST_ASSESSMENTDAT'])
 data.drop('ST_ASSESSMENTDAT', axis=1, inplace=True)
+
 data = replace_yn(data, ['ST_WEREANYSOFTTI'])
 st_num_map = {
     '': np.nan,
@@ -465,7 +538,10 @@ st_result_map = {
 data = replace_map(data, 'ST_RESULTOFEXAMI', st_result_map)
 cats['ST_RESULTOFEXAMI'] = st_result_map
 
-# Cytogenetics/chromosomal damage - this is the same as in the separate cytogenetic_data folder
+# These cols contain number or NaN as appropriate if the test was taken
+
+########################################################################################################################
+# Conventional cytogenetics/chromosomal damage tests
 # Drop unknown col
 data.drop('D_CM_enr', axis=1, inplace=True)
 
@@ -514,6 +590,14 @@ data.drop(['D_CM_cm', 'D_CM_abnmiss'], axis=1, inplace=True)
 # Drop redundant cols
 data.drop(['D_CM_cres', 'D_CM_aneu', 'D_CM_abnres'], axis=1, inplace=True)
 
+# Go back and ensure:
+#   NaN to unassessed patients
+assessed = pres['D_CM_WASCONVENTION'] == 1
+replace_cols = ['D_CM_DEL13', 'D_CM_DEL17', 'D_CM_T614', 'D_CM_1PDELETION', 'D_CM_T814', 'D_CM_1QAMPLIFICATI', 'D_CM_T1114', 'D_CM_OTHER']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan
+
+########################################################################################################################
 # D_IM (immunofluorescence?) stuff
 # Drop redundant cols
 data.drop(['D_IM_DCL_PATIENT_ID'], axis=1, inplace=True)
@@ -524,107 +608,6 @@ data.drop(['D_IM_COLLECTION_DAY', 'D_IM_PROCESSING_DAY'], axis=1, inplace=True)
 misc = misc.join(data[['D_IM_PATIENTS__MMRF_ELIGIBILITY']])
 data.drop(['D_IM_PATIENTS__MMRF_ELIGIBILITY'], axis=1, inplace=True)
 
-# Convert descriptions to numbers - actually, use the pre-coded versions below
-# igh_map = {
-#     '': np.nan,
-#     'not recorded': np.nan,
-#     'unknown': np.nan,
-#     'Unknown': np.nan,
-#     'IgA': 1,
-#     'IgG': 2,
-#     'IgM': 3,
-#     'IgG, IgA': 4,
-#     'IgM, IgE, IgA': 5
-# }
-# data = replace_map(data, 'D_IM_IGH_SITE', igh_map)
-# cats['D_IM_IGH_SITE'] = igh_map
-#
-# igl_map = {
-#     '': np.nan,
-#     'not recorded': np.nan,
-#     'unknown': np.nan,
-#     'Unknown': np.nan,
-#     'Kappa': 1,
-#     'kappa': 1,
-#     'Kappa - light chain only': 1,
-#     'Lambda': 2,
-#     'Bi-Clonal': 3
-# }
-# data = replace_map(data, 'D_IM_IGL_SITE', igl_map)
-# cats['D_IM_IGL_SITE'] = igl_map
-
-# Keep D_IM_MORPHOLOGY_PERCENT_PC_IN_BM, D_IM_FLOWCYT_PCT_PC_IN_BM_LOW, D_IM_FLOWCYT_PCT_PC_IN_BM_HIGH, D_IM_MORPHOLOGY_PERCENT_PC_IN_PB, D_IM_FLOWCYT_PCT_PC_IN_PB_LOW, D_IM_FLOWCYT_PCT_PC_IN_PB_HIGH
-
-# Keep D_IM_CD38_DETECTED, D_IM_CD38_PC_PERCENT, D_IM_CD138_DETECTED, D_IM_CD138_PC_PERCENT, D_IM_CD45_PC_TYPICAL_DETECTED, D_IM_CD45_PC_PERCENT, D_IM_CD56_DETECTED, D_IM_CD56_PC_PERCENT
-
-# Convert descriptions to numbers - actually, use the pre-coded versions below
-# cd38_map = {
-#     '': np.nan,
-#     'Dim': 1,
-#     'Not Bright': 1,
-#     'Bright': 2,
-#     'bright': 2,
-#     'Very Bright': 3,
-#     'Two densities': 4  # may be intermediate
-# }
-# data = replace_map(data, 'D_IM_CD38_DESCRIPTION', cd38_map)
-# cats['D_IM_CD38_DESCRIPTION'] = cd38_map
-#
-# cd138_map = {
-#     '': np.nan,
-#     'Dim': 1,
-#     'Variable': 2,
-#     'Two densities': 3,
-#     '2 densities': 3
-# }
-# data = replace_map(data, 'D_IM_CD138_DESCRIPTION', cd138_map)
-# cats['D_IM_CD138_DESCRIPTION'] = cd138_map
-#
-# cd45_map = {
-#     '': np.nan,
-#     'neg': -1,
-#     'dim to neg': 0,
-#     'Dim to Neg': 0,
-#     'very dim': 1,
-#     'Very Dim': 1,
-#     'dim': 2,
-#     'Dim': 2,
-#     'Not Bright': 2,
-#     'slightly dim': 3,
-#     'Slightly Dim': 3,
-#     'Dim to Usual': 3,
-#     'usual': 4,
-#     'moderate': 4,
-#     'Bright': 5,
-#     'Very Bright': 6,
-#     'Variable': 7,
-#     'Two densities': 7,
-#     'Two Populations, 30% -/dim and 70% positive': 7
-# }
-# data = replace_map(data, 'D_IM_CD45_DESCRIPTION', cd45_map)
-# cats['D_IM_CD45_DESCRIPTION'] = cd45_map
-#
-# cd56_map = {
-#     '': np.nan,
-#     'Dim to Neg': 0,  # not sure about the numbers
-#     'dim': 1,
-#     'Dim': 1,
-#     '0': 1,
-#     'Not Bright': 1,
-#     'moderate': 2,
-#     'Moderate': 2,
-#     'Bright': 3,
-#     'bright': 3,
-#     'Very Bright': 4,
-#     '100': 4,
-#     'Two densities': 5
-# }
-# data = replace_map(data, 'D_IM_CD56_DESCRIPTION', cd56_map)
-# cats['D_IM_CD56_DESCRIPTION'] = cd56_map
-#
-# data = replace_map(data, 'D_IM_LIGHT_CHAIN_BY_FLOW', igl_map)
-# cats['D_IM_LIGHT_CHAIN_BY_FLOW'] = igl_map
-
 # Keep the other CD's as is
 # Keep FGFR3
 
@@ -632,6 +615,7 @@ data.drop(['D_IM_PATIENTS__MMRF_ELIGIBILITY'], axis=1, inplace=True)
 # Keep D_IM_DNA_INDEX, D_IM_BRAF_STATUS
 
 # Drop IM cols that are otherwise coded
+#   It's possible we may use the readings, but unlikely
 data.drop(['D_IM_IGH_SITE', 'D_IM_IGL_SITE', 'D_IM_CD38_DESCRIPTION', 'D_IM_CD138_DESCRIPTION', 'D_IM_CD45_DESCRIPTION', 'D_IM_CD56_DESCRIPTION', 'D_IM_LIGHT_CHAIN_BY_FLOW'], axis=1, inplace=True)
 
 data = replace_map(data, 'D_IM_BRAF_CDNA_VARIANT', {'': np.nan})
@@ -664,8 +648,10 @@ data.drop(['D_IM_crdiff', 'D_IM_pddiff'], axis=1, inplace=True)
 pres = pres.join(data[['D_IM_det_plasma_cells', 'D_IM_detectable', 'D_IM_kaplam', 'D_IM_crhit', 'D_IM_pdhit', 'D_IM_hit']])
 data.drop(['D_IM_det_plasma_cells', 'D_IM_detectable', 'D_IM_kaplam', 'D_IM_crhit', 'D_IM_pdhit', 'D_IM_hit'], axis=1, inplace=True)
 
+########################################################################################################################
 # Lab results - keep all numeric lab results
 
+########################################################################################################################
 # Survey questions
 col_names = list(data)
 
@@ -684,6 +670,7 @@ q_start_ind = col_names.index('D_QOL_Q1')
 q_end_ind = col_names.index('D_QOL_enr')
 data.drop(data.columns[q_start_ind:q_end_ind+1], axis=1, inplace=True)
 
+########################################################################################################################
 # Keep cols with percent abonrmal cells
 #   D_TRI_CF_T1420ABNORMAL, D_TRI_CF_1PDELETIONABN, D_TRI_CF_1PAMPLIFICATI2, D_TRI_CF_P53LOCUSCHROM2,
 #   D_TRI_CF_OTHERSPECIFYA, D_TRI_CF_OTHERSPECIFYA2
@@ -705,7 +692,7 @@ data.drop(['D_TRI_CF_1PDELETIONOFC', 'D_TRI_CF_1PAMPLIFICATI', 'D_TRI_CF_P53LOCU
 # Presence/absence of abnormalities
 p1del_map = {
     '': np.nan,
-    '.': np.nan,
+    '.': np.nan,  # not sure about this
     'Not Done': np.nan,
     'No': 0,
     'Yes': 1,
@@ -823,6 +810,14 @@ data.drop(['D_TRI_missabn', 'D_TRI_noneabn'], axis=1, inplace=True)
 # Drop more redundant trisomies data
 data.drop(['D_TRI_trisomies', 'D_TRI_trisnd', 'D_TRI_trisnone'], axis=1, inplace=True)
 
+# Go back and ensure:
+#   NaN to unassessed patients
+assessed = pres['D_TRI_CF_WASCYTOGENICS'] == 1
+replace_cols = ['D_TRI_CF_TRISOMIES3', 'D_TRI_CF_TRISOMIES5', 'D_TRI_CF_TRISOMIES7', 'D_TRI_CF_TRISOMIES9', 'D_TRI_CF_TRISOMIES11', 'D_TRI_CF_TRISOMIES15', 'D_TRI_CF_TRISOMIES19', 'D_TRI_CF_TRISOMIES21', 'D_TRI_CF_TRISOMIESOTH']
+for col in replace_cols:
+    data.loc[assessed == 0, col] = np.nan
+
+########################################################################################################################
 # Another hyperdiploid measure
 data = replace_yn(data, ['Hyperdiploid'])
 
@@ -852,14 +847,69 @@ cats['AT_CDRREVIEWPERI'] = response_map
 text = text.join(data[['AT_CDRCOMMENTPER']])
 data.drop(['AT_CDRCOMMENTPER'], axis=1, inplace=True)
 
+# Palumbo bone data
+# Drop for now - there's only 24 measurements, their code is indecipherable, don't know how to merge
+data.drop(['Bone_lytic_evaluation', 'MYELOMA_INVOLVEMENT_IN_THE_BONE_', 'diagn_Plasmocitoma_number', 'diagn_Plasmocitoma_size', 'diagn_Plasmocitoma_Site', 'diagn_test_plasmocitoma'], axis=1, inplace=True)
 
-# TODO: Last few cols, start on 601
+# Reason for visit
+cmmc_map = {
+    'Relapse/Progression': 10,
+    'Remission/Response': 9,
+    'complete response': 8,
+    'Restaging': 7,
+    'Post-transplant': 6,
+    'Pre-transplant': 5,
+    'follow up': 4,
+    'Confirmation': 3,
+    'Baseline': 2,
+    'Screening': 1,
+    'Other': 0,
+    '': np.nan
+}
+data = replace_map(data, 'CMMC_VISIT_NAME', cmmc_map)
+cats['CMMC_VISIT_NAME'] = cmmc_map
 
-# print(data['Hyperdiploid'].unique())
+# Text indicates "extrapolated result" and similar
+text = text.join(data['CMMC_COMMENTS'])
+data.drop('CMMC_COMMENTS', axis=1, inplace=True)
+
+# Keep CMMC
+
+cmmc2_map = {
+    'Confirm Progression': 10,
+    'Confirm Response/sC': 8,
+    'Restaging/disease s': 7,
+    'Post transplant': 6,
+    'Pre transplant': 5,
+    'Baseline': 2,
+    'Other': 0,
+    '': np.nan
+}
+data = replace_map(data, 'CMMC_REASONFORPROC', cmmc2_map)
+cats['CMMC_REASONFORPROC'] = cmmc2_map
+
+cml_map = {
+    'Confirm myeloid leukemia': 5,
+    'S/P BMT': 4,
+    'per physician': 3,
+    'response to date PR...confirm or review for pd': 2,
+    'Follow Up': 1,
+    '': np.nan
+}
+data = replace_map(data, 'CMMC_BONE_SPECIFY2', cml_map)
+cats['CMMC_BONE_SPECIFY2'] = cml_map
+
+# Keep CMMC_REASONCODE, CMMC_CRHIT, CMMC_PDHIT, CMMC_RECDY
+
+# Drop enr
+data.drop('enr', axis=1, inplace=True)
 
 # Save processed tables
 output_dir = 'data/processed'
+
+data.set_index(['PUBLIC_ID', 'VISIT'], inplace=True)
 data.to_csv(os.path.join(output_dir, 'clinical_data.csv'))
+
 # pres.to_csv(os.path.join(output_dir, 'clinical_pres.csv'))
 # text.to_csv(os.path.join(output_dir, 'clinical_text.csv'))
 # misc.to_csv(os.path.join(output_dir, 'clinical_misc.csv'))
