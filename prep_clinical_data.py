@@ -123,7 +123,7 @@ data.drop('AT_WASANASSESSME', axis=1, inplace=True)
 date = date.join(data['AT_RESPONSEASSES'])
 data.drop('AT_RESPONSEASSES', axis=1, inplace=True)
 
-# Convert treatment response to numeric index
+# Convert treatment response to numeric index and put into end results table
 response_map = {
     'Stringent Complete Response (sCR)': 6,
     'Complete Response': 5,
@@ -133,7 +133,8 @@ response_map = {
     'Progressive Disease': 1,
     '': np.nan
 }
-data = replace_map(data, 'AT_TREATMENTRESP', response_map)
+endp = endp.join(data['AT_TREATMENTRESP'].replace(response_map))
+data.drop('AT_TREATMENTRESP', axis=1, inplace=True)
 cats['AT_TREATMENTRESP'] = response_map
 
 # Basic checks on worsening conditions
@@ -840,7 +841,8 @@ cats['AT_ABSENCEOFCLON'] = p1del_map
 
 # Keep 2nd col of disease progression
 #   TODO: compare to other col, merge?
-data = replace_map(data, 'AT_CDRREVIEWPERI', response_map)
+endp = endp.join(data['AT_CDRREVIEWPERI'].replace(response_map))
+data.drop('AT_CDRREVIEWPERI', axis=1, inplace=True)
 cats['AT_CDRREVIEWPERI'] = response_map
 
 # Semi-structured text
@@ -851,7 +853,7 @@ data.drop(['AT_CDRCOMMENTPER'], axis=1, inplace=True)
 # Drop for now - there's only 24 measurements, their code is indecipherable, don't know how to merge
 data.drop(['Bone_lytic_evaluation', 'MYELOMA_INVOLVEMENT_IN_THE_BONE_', 'diagn_Plasmocitoma_number', 'diagn_Plasmocitoma_size', 'diagn_Plasmocitoma_Site', 'diagn_test_plasmocitoma'], axis=1, inplace=True)
 
-# Reason for visit
+# Treat CMMC effect as endpoint
 cmmc_map = {
     'Relapse/Progression': 10,
     'Remission/Response': 9,
@@ -866,15 +868,15 @@ cmmc_map = {
     'Other': 0,
     '': np.nan
 }
-data = replace_map(data, 'CMMC_VISIT_NAME', cmmc_map)
+endp = endp.join(data['CMMC_VISIT_NAME'].replace(cmmc_map))
+data.drop('CMMC_VISIT_NAME', axis=1, inplace=True)
 cats['CMMC_VISIT_NAME'] = cmmc_map
 
 # Text indicates "extrapolated result" and similar
 text = text.join(data['CMMC_COMMENTS'])
 data.drop('CMMC_COMMENTS', axis=1, inplace=True)
 
-# Keep CMMC
-
+# Keep CMMC causes
 cmmc2_map = {
     'Confirm Progression': 10,
     'Confirm Response/sC': 8,
@@ -910,12 +912,14 @@ output_dir = 'data/processed'
 data.set_index(['PUBLIC_ID', 'VISIT'], inplace=True)
 data.to_csv(os.path.join(output_dir, 'clinical_data.csv'))
 
+endp.set_index(['PUBLIC_ID', 'VISIT'], inplace=True)
+endp.to_csv(os.path.join(output_dir, 'clinical_endp.csv'))
+
 # pres.to_csv(os.path.join(output_dir, 'clinical_pres.csv'))
 # text.to_csv(os.path.join(output_dir, 'clinical_text.csv'))
 # misc.to_csv(os.path.join(output_dir, 'clinical_misc.csv'))
 # date.to_csv(os.path.join(output_dir, 'clinical_date.csv'))
 # treat.to_csv(os.path.join(output_dir, 'clinical_treat.csv'))
-# endp.to_csv(os.path.join(output_dir, 'clinical_endp.csv'))
 # survey.to_csv(os.path.join(output_dir, 'clinical_survey.csv'))
 # survey_agg.to_csv(os.path.join(output_dir, 'clinical_survey_agg.csv'))
 
