@@ -203,3 +203,5 @@ endp.to_csv(os.path.join(output_dir, 'patient_endp.csv'))
 treat.set_index('PUBLIC_ID', inplace=True)
 treat.to_csv(os.path.join(output_dir, 'patient_treat.csv'))
 
+study.set_index('PUBLIC_ID', inplace=True)
+study.to_csv(os.path.join(output_dir, 'patient_study.csv'))

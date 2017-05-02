@@ -5,6 +5,10 @@ import pandas as pd
 
 data_dir = 'data/processed'
 
+# Load study data - to keep just the CoMMpass patients
+study_data = pd.read_csv(os.path.join(data_dir, 'patient_study.csv'))
+study_data.set_index('PUBLIC_ID', inplace=True)
+
 # Load demographic data
 demo_data = pd.read_csv(os.path.join(data_dir, 'patient_data.csv'))
 demo_data.set_index('PUBLIC_ID', inplace=True)
@@ -25,6 +29,9 @@ visit_data.drop('VISIT', axis=1, inplace=True)
 # Combine demographic and visit data
 data = demo_data
 data = data.join(visit_data)
+
+# Only keep CoMMpass patients
+data = data[study_data['STUDY_ID'] == 1]
 
 # Save combined baseline patient data
 data.to_csv(os.path.join(data_dir, 'baseline_clinical_data.csv'))
