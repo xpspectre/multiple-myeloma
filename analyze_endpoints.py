@@ -64,10 +64,12 @@ treat_data.set_index('PUBLIC_ID', inplace=True)
 # Go thru the formalism of consistently joining the tables and separating out the components as needed
 data = endp_data
 data = data.join(treat_data)
+
 died = pd.notnull(data['D_PT_deathdy']).astype(int)
 last_observed = data[['D_PT_lstalive', 'D_PT_deathdy']].max(axis=1)
 cols = ['TREAT_BOR', 'TREAT_CAR', 'TREAT_IMI', 'line1sct']
 treatments = ['Bortezomib', 'Carfilzomib', 'IMIDs', 'SCT']
+
 kmf = KaplanMeierFitter()
 for i, col in enumerate(cols):
     died_i = died[data[col] == 1]
@@ -81,5 +83,21 @@ for i, col in enumerate(cols):
     plt.ylabel('Survival')
     plt.title('CoMMpass Survival by Treatment\n(Treatments may overlap, may be dependent on severity)')
     plt.draw()
+
+# 1st line stem cell transfer vs no
+died_sct = died[data['line1sct'] == 1]
+died_no_sct = died[data['line1sct'] == 0]
+last_observed_sct = last_observed[data['line1sct'] == 1]
+last_observed_no_sct = last_observed[data['line1sct'] == 0]
+
+kmf = KaplanMeierFitter()
+kmf.fit(last_observed_sct, event_observed=died_sct, label='SCT')
+ax = kmf.plot()
+kmf.fit(last_observed_no_sct, event_observed=died_no_sct, label='No SCT')
+kmf.plot(ax=ax)
+plt.xlabel('Time (days)')
+plt.ylabel('Survival')
+plt.title('CoMMpass Survival by 1st Line Stem Cell Transfer Treatment')
+plt.draw()
 
 plt.show()
