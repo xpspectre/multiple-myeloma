@@ -2,6 +2,7 @@
 
 import os
 import pandas as pd
+import numpy as np
 
 data_dir = 'data/processed'
 
@@ -33,7 +34,27 @@ data = data.join(visit_data)
 # Only keep CoMMpass patients
 data = data[study_data['STUDY_ID'] == 1]
 
+# Drop cols that represent change over last visit
+data.drop(['AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', 'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF'], axis=1, inplace=True)
+
+# Keep only the cols that have >= threashold % entries present
+#   Set this to determine how much we have to consider missing data
+#   A smallish amount of missing data should be pretty straightforward imputation
+#   More missing data is harder
+#   Which cols can be used for regression of missing data? (if our method requires that)
+keep_thres = 0.5
+cols = list(data)
+present = []
+N, N_cols = data.shape
+for col in cols:
+    n = pd.notnull(data[col]).sum()
+    present.append(float(n)/N)
+present = np.array(present)
+drop_cols = np.where(present < keep_thres)[0]
+data.drop(data.columns[drop_cols], axis=1, inplace=True)
+print('Dropped {n}/{N} cols that had less than {x} frac of values'.format(n=drop_cols.size, N=N_cols, x=keep_thres))
+
 # Save combined baseline patient data
 data.to_csv(os.path.join(data_dir, 'baseline_clinical_data.csv'))
 
-print(data)
+# print(data)

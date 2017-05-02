@@ -10,7 +10,6 @@ from load_patient_data import load_per_visit_data
 import numpy as np
 import pandas as pd
 import os
-import cmsgpack
 
 
 yn_map = {
@@ -29,27 +28,21 @@ checked_map = {
 # Helper functions
 def replace_map(x, col, map):
     """General function to replace col vals with map"""
-    d = x[col].replace(map)
-    x.drop(col, axis=1, inplace=True)
-    x[col] = d
+    x[col] = x[col].replace(map)
     return x
 
 
 def replace_yn(x, cols):
     """Replace a yes/no/blank with 1/0/nan col. Returns x."""
     for col in cols:
-        d = x[col].replace(yn_map)
-        x.drop(col, axis=1, inplace=True)
-        x[col] = d
+        x[col] = x[col].replace(yn_map)
     return x
 
 
 def replace_checked(x, cols):
     """Replace checked/blank with 1/0. Returns x"""
     for col in cols:
-        d = x[col].replace(checked_map)
-        x.drop(col, axis=1, inplace=True)
-        x[col] = d
+        x[col] = x[col].replace(checked_map)
     return x
 
 
@@ -143,7 +136,7 @@ data = replace_checked(data, ['AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEM
 # Go back and ensure:
 #   NaN to unassessed patients
 assessed = pres['AT_WASANASSESSME'] == 1
-replace_cols = ['AT_DEFINITEDEVEL', 'AT_TREATMENTRESP', 'AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', 'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF']
+replace_cols = ['AT_DEFINITEDEVEL', 'AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', 'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF']
 for col in replace_cols:
     data.loc[assessed == 0, col] = np.nan
 
