@@ -3,6 +3,7 @@
 import os
 import pandas as pd
 import numpy as np
+from fancyimpute import KNN, MICE
 
 data_dir = 'data/processed'
 
@@ -54,7 +55,40 @@ drop_cols = np.where(present < keep_thres)[0]
 data.drop(data.columns[drop_cols], axis=1, inplace=True)
 print('Dropped {n}/{N} cols that had less than {x} frac of values'.format(n=drop_cols.size, N=N_cols, x=keep_thres))
 
+# Load endpoints and join/split with data
+endp_data = pd.read_csv(os.path.join(data_dir, 'patient_endp.csv'))
+endp_data.set_index('PUBLIC_ID', inplace=True)
+endp_cols = list(endp_data)
+data_ = data
+data_ = data_.join(endp_data)
+data = data_.drop(endp_cols, axis=1)
+endp_data = data_[endp_cols]
+
 # Save combined baseline patient data
 data.to_csv(os.path.join(data_dir, 'baseline_clinical_data.csv'))
+endp_data.to_csv(os.path.join(data_dir, 'baseline_clinical_endp.csv'))
 
-# print(data)
+# Impute missing data
+#   If all the cols are allowed to be treated as numeric vals, then this is OK as is
+#   Otherwise, if some cols still need to be categorical/indicator, then threshold and convert
+# Not sure if these funs below are supposed to return multiple datasets?
+# May want to recombine categorical cols into 1 col, then multinomial or softmax logistic regression on them in MI,
+#   then resplit
+cols = list(data)
+inds = data.index.values
+
+X = data.as_matrix()
+
+X_filled_knn = KNN(k=3).complete(X)
+data_filled_knn = pd.DataFrame(data=X_filled_knn, columns=cols)
+data_filled_knn.insert(0, 'PUBLIC_ID', inds)
+data_filled_knn.set_index('PUBLIC_ID', inplace=True)
+
+X_filled_mice = MICE().complete(X)
+data_filled_mice = pd.DataFrame(data=X_filled_mice, columns=cols)
+data_filled_mice.insert(0, 'PUBLIC_ID', inds)
+data_filled_mice.set_index('PUBLIC_ID', inplace=True)
+
+# Save imputed data ready for standard analysis
+data_filled_knn.to_csv(os.path.join(data_dir, 'baseline_clinical_data_imputed_knn.csv'))
+data_filled_mice.to_csv(os.path.join(data_dir, 'baseline_clinical_data_imputed_mice.csv'))

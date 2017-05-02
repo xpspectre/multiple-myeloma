@@ -8,8 +8,10 @@ Make a new Anaconda3 environment
 ```
 conda create -n mm-env python=3.5 numpy scipy matplotlib pandas msgpack-python scikit-learn pillow xlrd lifelines
 source activate mm-env
-pip install tensorflow msgpack-numpy
+pip install tensorflow msgpack-numpy fancyimpute
 ```
+
+Warning: `fancyimpute` has a lot of dependencies.
 
 Make a symlink in this directory to the data store
 ```
