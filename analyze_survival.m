@@ -129,6 +129,7 @@ coxphopt.MaxIter = 100; % default
 [b, logL, H, stats] = coxphfit(X, last_observed, 'Censoring', censored, 'Options', coxphopt);
 pvals = stats.p;
 % positive value of beta means hi val = more hazard
+% Harder to converge optimization w/ all features
 
 % Sort features by most important (magnitude, pos or neg) that are significant
 %   Lots of features w/ large mags also have large p-vals
@@ -152,21 +153,23 @@ end
 %% Look at differential survival due to some predictors
 % Find 1st important significant feature where more than 50 people are in
 %   each group - prevents 1 good/bad person from biasing it too much
-% Warning: D_LAB_chem_creatinine and D_CM_OTHER give the wrong trend? Are
-%   the labels wrong? Validate w/ logistic regression - survival at 1 yr
-col = 'D_LAB_chem_creatinine';
+% Note: D_LAB_chem_creatinine and D_CM_OTHER give the wrong trend? Is this
+%   just what happens when you fit the full model (and you take into account everything else)?
+%   TODO: Validate w/ logistic regression - survival at 1 yr
+col = 'D_IM_igl';
 hi = max(data_orig{:,col});
 lo = min(data_orig{:,col});
 % group1 = data_orig{:,col} > (hi+lo)/2;
 group1 = data_orig{:,col} > mean(data_orig{:,col});
 % group1 = data_orig{:,col} > median(data_orig{:,col});
 
-[hf1, hx1] = ecdf(last_observed(group1), 'censoring', censored(group1), 'function', 'cumulative hazard');
-[hf2, hx2] = ecdf(last_observed(~group1), 'censoring', censored(~group1), 'function', 'cumulative hazard');
-[f1, x1] = ecdf(last_observed(group1), 'censoring', censored(group1), 'function', 'survivor');
-[f2, x2] = ecdf(last_observed(~group1), 'censoring', censored(~group1), 'function', 'survivor');
+[hf1, hx1, hlo1, hhi1] = ecdf(last_observed(group1), 'censoring', censored(group1), 'function', 'cumulative hazard');
+[hf2, hx2, hlo2, hhi2] = ecdf(last_observed(~group1), 'censoring', censored(~group1), 'function', 'cumulative hazard');
+[f1, x1, lo1, hi1] = ecdf(last_observed(group1), 'censoring', censored(group1), 'function', 'survivor');
+[f2, x2, lo2, hi2] = ecdf(last_observed(~group1), 'censoring', censored(~group1), 'function', 'survivor');
 
-figure('Position', [100, 100, 1200, 600]);
+% Histogram of feature distribution in the study
+figure('Position', [100, 100, 1200, 400]);
 subplot(1,3,1)
 edges = linspace(lo, hi, 20);
 histogram(data_orig{group1,col}, edges)
@@ -174,26 +177,52 @@ hold on
 histogram(data_orig{~group1,col}, edges)
 hold off
 legend({'Hi','Lo'}, 'Location', 'best')
+title('Feature Distribution')
 
+% Cumulative hazard
 subplot(1,3,2)
-stairs(hx1, hf1)
+% Group 1 
+h1 = stairs(hx1, hf1);
+c = get(h1, 'Color');
 hold on
-stairs(hx2, hf2)
+stairs(hx1, hlo1, ':', 'Color', c);
+stairs(hx1, hhi1, ':', 'Color', c);
+% Group 2
+h2 = stairs(hx2, hf2);
+c = get(h2, 'Color');
+stairs(hx2, hlo2, ':', 'Color', c);
+stairs(hx2, hhi2, ':', 'Color', c);
 hold off
 xlabel('Time (days)')
 ylabel('Cumulative Hazard')
-legend({'Hi','Lo'}, 'Location', 'northwest')
+legend([h1, h2], {'Hi','Lo'}, 'Location', 'northwest')
+title('Cumulative Hazard')
 
+% Survival
 subplot(1,3,3)
-stairs(x1, f1)
+% Group 1 
+h1 = stairs(x1, f1);
+c = get(h1, 'Color');
 hold on
-stairs(x2, f2)
+stairs(x1, lo1, ':', 'Color', c);
+stairs(x1, hi1, ':', 'Color', c);
+% Group 2
+h2 = stairs(x2, f2);
+c = get(h2, 'Color');
+stairs(x2, lo2, ':', 'Color', c);
+stairs(x2, hi2, ':', 'Color', c);
 hold off
 xlabel('Time (days)')
 ylabel('Survival')
+title('Survival')
 
 th = suptitle(col);
 set(th, 'Interpreter', 'none')
+
+% Individual cox regression on col only
+%   This seems to show the right result - the above must just end up really
+%   strange when taking everything else into account
+[b, logL, H, stats] = coxphfit(data{:,col}, last_observed, 'Censoring', censored, 'Options', coxphopt);
 
 %%
 figure
