@@ -73,8 +73,7 @@ ng = length(gene_ids);
 fprintf('Threw out %i genes where all patients had the same val\n', sum(toss))
 
 %% Look at distribution of variances
-Xmean = mean(M,1);
-devs = std(M,0,1)./Xmean;
+devs = std(M,0,1)./mean(M,1);
 figure
 histogram(log10(devs));
 xlabel('log_{10} Std Dev/Mean')
@@ -91,7 +90,7 @@ patient_ids = strcat(seq_ids, '_BM');
 [keep_ids, ia, ib] = intersect(patient_ids, patients); % ib is the X rows to keep
 
 M = M(ib,:);
-Mmean = M(ib); % keep this for comparing patients against the pop
+Mmean = mean(M,1); % keep this for comparing patients against the pop; for fairness, only do this for the kept patients
 patients = patients(ib);
 patients = regexprep(patients,'.....$',''); % delete the last 5 chars to get the PUBLIC_ID to join on (probably)
 save(baseline_feature_file, 'M', 'Mmean', 'patients', 'gene_ids', 'gene_descs')
