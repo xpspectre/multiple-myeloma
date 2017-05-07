@@ -1,5 +1,5 @@
 # Load, filter, prep RNAseq data for baseline analyses
-# Note: This code would have been much nicer in Matlab
+# Note: This code is deprecated - use the Matlab version prep_rnaseq.m
 
 from load_patient_data import load_per_visit_data
 import numpy as np
