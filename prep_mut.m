@@ -5,11 +5,11 @@ rng('default');
 
 % Flags for different types of processing - because some of the steps are
 %   expensive
-load_file = 0;
-slice_file = 1;
-get_counts = 1;
-get_raw_features = 1;
-load_per_visit_file = 1;
+load_file = 2;
+slice_file = 2;
+get_counts = 2;
+get_raw_features = 2;
+load_per_visit_file = 2;
 
 mut_file = 'data/raw/MMRF_CoMMpass_IA9_NS.mut';
 raw_out = 'data/processed/ns_mut_raw.mat';

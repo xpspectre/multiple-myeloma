@@ -12,7 +12,7 @@
 clear; close all; clc
 rng('default');
 
-load_raw = 1;
+load_raw = 0;
 build_gene_table = 1;
 build_dataset = 1;
 
@@ -20,12 +20,14 @@ rnaseq_file = 'data/raw/MMRF_CoMMpass_IA9_E74GTF_Cufflinks_Gene_FPKM.txt';
 per_visit_lim_out = 'data/processed/per_visit_lim.mat';
 raw_file = 'data/processed/rnaseq_cufflinks_fpkm_raw.mat';
 baseline_feature_file = 'data/processed/rnaseq_cufflinks_fpkm_baseline_features.mat';
-gsea_expr_file = 'data/processed/rnaseq_cufflinks_fpkm_gsea_expr.txt'; % main expression file for GSEA
-gsea_phenotype_labels_file = 'data/processed/rnaseq_cufflinks_fpkm_gsea_phenotype_labels.cls'; % main phenotype labels file for GSEA
 gene_ids_file = 'data/processed/rnaseq_cufflinks_fpkm_gsea_gene_ids.txt';
 gene_table_in = 'gene_table.txt';
 gene_table_out = 'data/processed/gene_table.mat';
 missing_genes_file = 'data/processed/genes_to_lookup.txt';
+
+gsea_inputs_dir = 'data/processed/gsea/';
+gsea_outputs_dir = 'data/processed/gsea_outputs/';
+gsea_cmd_file = 'rnaseq_cufflinks_fpkm_gsea_cmds.sh'; % Generate script to run GSEA in an automated fashion
 
 %% Load main RNAseq file
 switch load_raw
@@ -133,54 +135,91 @@ end
 
 %% Generate GSEA format files
 % http://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/Data_formats
-% Testing: just take a subset of patients
-N = 10;
+% N = 10; % Testing: just take a subset of patients
+N = size(M,1); % Production: all patients
 ng = size(M,2);
 
 % Expression data
 %   Basically the original input file format
-missing_genes = cell(ng,1); % keep track of missing genes to lookup. These will be skipped in the expr file.
+%   Make a separate file for each analysis
 prec = 12;
-f = fopen(gsea_expr_file, 'w');
-header = [{'NAME', 'DESCRIPTION', 'MEAN'}, patients(1:N)];
-fprintf(f, [strjoin(header, '\t'), '\n']);
+expr_files = cell(N,1);
+labels_files = cell(N,1);
+
+% Preallocate kept gene id<->name mapping
+keep = false(ng,1);
+gene_symbols = cell(ng,1);
 for ig = 1:ng
-    vals = [Mmean(ig); M(1:N,ig)]';
-    vals_strs = strread(num2str(vals, prec), '%s');
     gene_id = gene_ids{ig};
     if gene_map.isKey(gene_id)
-        gene_symbol = gene_map(gene_id);
-        gene_name = gene_name_map(gene_id);
-        if isempty(gene_name) % yeah, some of the vals are blank
-            gene_name = 'na';
-        end
-    else
-        fprintf('Gene %s symbol not found\n', gene_id)
-        missing_genes{ig} = gene_id;
-        continue
+        keep(ig) = true;
+        gene_symbols{ig} = gene_map(gene_id);
     end
-    entries = [gene_symbol, gene_name, vals_strs']; % blank description
-    fprintf(f, [strjoin(entries, '\t'), '\n']);
+end
+% Only keep the genes that we have symbols for
+gene_symbols(~keep) = [];
+Mmean(~keep) = [];
+M(:,~keep) = [];
+ng = length(Mmean);
+
+% Write actual files
+%   This is inefficient, but good enough
+for iN = 1:N
+    patient = patients{iN};
+    n_classes = 2; % MEAN and patient
+    n_samples = 2;
+    
+    fprintf('Writing files for patient %s\n', patient)
+    
+    % Expression data file
+    expr_file = [gsea_inputs_dir sprintf('rnaseq_cufflinks_fpkm_gsea_expr_%s.txt', patient)];
+    f = fopen(expr_file, 'w');
+    header = {'NAME', 'DESCRIPTION', 'MEAN', patient};
+    fprintf(f, [strjoin(header, '\t'), '\n']);
+    for ig = 1:ng
+        vals = [Mmean(ig); M(iN,ig)]';
+        vals_strs = strread(num2str(vals, prec), '%s');
+        gene_symbol = gene_symbols{ig};
+        gene_name = 'na';
+        entries = [gene_symbol, gene_name, vals_strs']; % blank description
+        fprintf(f, [strjoin(entries, '\t'), '\n']);
+    end
+    fclose(f);
+    expr_files{iN} = expr_file;
+    
+    % Phenotype labels file
+    %   Each class has 1 sample, user-visible names are the same as internal names
+    labels_file = [gsea_inputs_dir sprintf('rnaseq_cufflinks_fpkm_gsea_phenotype_labels_%s.cls', patient)];
+    f = fopen(labels_file, 'w');
+    fprintf(f, '%i\t%i\t1\n', n_samples, n_classes);
+    names = {'MEAN', patient};
+    fprintf(f, ['#\t' strjoin(names, '\t'), '\n']);
+    fprintf(f, [strjoin(names, '\t'), '\n']);
+    fclose(f);
+    labels_files{iN} = labels_file;
+    
+%     if iN == 3
+%         break
+%     end
+end
+
+%% Command to run GSEA
+% Make sure the gsea jar is in this dir and run this script from this dir.
+gene_set_file = 'data/processed/h.all.v6.0.symbols.gmt';
+gene_chip_file = 'data/processed/GENE_SYMBOL.chip';
+f = fopen(gsea_cmd_file, 'w');
+fprintf(f, '#!/usr/bin/env bash\n');
+fprintf(f, '# Script to run GSEA on all the patients vs MEAN\n');
+for iN = 1:N
+    patient = patients{iN};
+    expr_file = expr_files{iN};
+    label_file = labels_files{iN};
+    fprintf(f, 'java -cp gsea2-2.2.4.jar -Xmx1024m xtools.gsea.Gsea -res %s -cls %s#%s_versus_MEAN -gmx %s -collapse false -mode Max_probe -norm meandiv -nperm 1000 -permute gene_set -rnd_type no_balance -scoring_scheme weighted -metric Signal2Noise -sort real -order descending -chip %s -include_only_symbols true -make_sets true -median false -num 100 -plot_top_x 20 -rnd_seed timestamp -save_rnd_lists false -set_max 500 -set_min 15 -zip_report false -out %s -gui false -rpt_label %s\n', expr_file, label_file, patient, gene_set_file, gene_chip_file, gsea_outputs_dir, patient);
+    
+%     if iN == 3
+%         break
+%     end
 end
 fclose(f);
-missing_genes = missing_genes(~cellfun(@isempty, missing_genes));
-nmg = length(missing_genes);
 
-% Make list of missing genes
-%   There are a couple thousand - probably no big deal
-f = fopen(missing_genes_file, 'w');
-for img = 1:nmg
-    fprintf(f, '%s\n', missing_genes{img});
-end
-fclose(f);
 
-% Phenotype labels
-%   Each class has 1 sample, user-visible names are the same as internal names
-n_classes = N + 1;
-n_samples = n_classes;
-f = fopen(gsea_phenotype_labels_file, 'w');
-fprintf(f, '%i\t%i\t1\n', n_samples, n_classes);
-names = [{'MEAN'}, patients(1:N)];
-fprintf(f, ['#\t' strjoin(names, '\t'), '\n']);
-fprintf(f, [strjoin(names, '\t'), '\n']);
-fclose(f);
