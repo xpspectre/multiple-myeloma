@@ -5,11 +5,11 @@ rng('default');
 
 % Flags for different types of processing - because some of the steps are
 %   expensive
-load_file = 2;
-slice_file = 2;
-get_counts = 2;
-get_raw_features = 2;
-load_per_visit_file = 2;
+load_file = 0;
+slice_file = 1;
+get_counts = 1;
+get_raw_features = 1;
+load_per_visit_file = 1;
 
 mut_file = 'data/raw/MMRF_CoMMpass_IA9_NS.mut';
 raw_out = 'data/processed/ns_mut_raw.mat';
@@ -55,15 +55,19 @@ switch get_counts
     case 2
         % Per-row counts
         mut_counts = containers.Map('KeyType', 'char', 'ValueType', 'double');
+        gene_id_symbol_map = containers.Map('KeyType', 'char', 'ValueType', 'char'); % for translating between gene id and symbol
         for im = 1:nm
             patient = data{im,'sample'}{1};
             gene_id = data{im,'GENEID'}{1};
+            gene_symbol = data{im,'gene'}{1};
             
             if mut_counts.isKey(gene_id)
                 mut_counts(gene_id) = mut_counts(gene_id) + 1;
             else
                 mut_counts(gene_id) = 1;
             end
+            
+            gene_id_symbol_map(gene_id) = gene_symbol;
             
             if mod(im, 1000) == 0
                 fprintf('Loaded %i rows\n', im)
@@ -76,11 +80,13 @@ switch get_counts
         mut_counts_unique = containers.Map('KeyType', 'char', 'ValueType', 'double');
         patients = unique(data{:, 'sample'});
         np = length(patients);
+        patient_muts = cell(np,1); % list of mutations found for each patient
         for ip = 1:np
             patient = patients{ip};
             data_ip = data(strcmp(data{:,'sample'},patient),:);
             patient_mut_counts(patient) = height(data_ip);
             muts_unique = unique(data_ip{:,'GENEID'});
+            patient_muts{ip} = muts_unique;
             nmu = length(muts_unique);
             for imu = 1:nmu
                 mut = muts_unique{imu};
@@ -92,12 +98,14 @@ switch get_counts
             end
         end
         
-        save(counts_file, 'patient_mut_counts', 'mut_counts', 'mut_counts_unique')
+        save(counts_file, 'patient_mut_counts', 'mut_counts', 'mut_counts_unique', 'patient_muts', 'gene_id_symbol_map');
     case 1
         loaded = load(counts_file);
         patient_mut_counts = loaded.patient_mut_counts;
         mut_counts = loaded.mut_counts;
         mut_counts_unique = loaded.mut_counts_unique;
+        patient_muts = loaded.patient_muts;
+        gene_id_symbol_map = loaded.gene_id_symbol_map;
 end
 
 %% View counts
@@ -191,5 +199,22 @@ patient_ids = strcat(seq_ids, '_BM');
 
 X = X(ib,:);
 patients = patients(ib);
+np = length(patients);
 patients = regexprep(patients,'.....$',''); % delete the last 5 chars to get the PUBLIC_ID to join on (probably)
 save(baseline_feature_file, 'X', 'patients', 'genes')
+
+%% Make a list of genes mutated in each patient for GO enrichment analysis
+patient_muts = patient_muts(ib);
+for ip = 1:np
+    patient_muts_file = sprintf('data/processed/go/ns_mut_baseline_mut_lists_%s.txt', patients{ip});
+    f = fopen(patient_muts_file, 'w');
+    patient_mut = patient_muts{ip};
+    n = length(patient_mut);
+    genes = cell(n,1);
+    for i = 1:n
+        genes{i} = gene_id_symbol_map(patient_mut{i});
+    end
+    fprintf(f, strjoin(genes, '\n'));
+    fclose(f);
+end
+
