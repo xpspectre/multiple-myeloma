@@ -5,6 +5,7 @@
 import os
 from load_patient_data import load_treatment_regimen, load_treatment_resp
 import numpy as np
+import scipy.io as sio
 import cmsgpack
 
 
@@ -114,6 +115,60 @@ def build_treatment_resps():
     return patient_therapies, therapies
 
 
+def cleanup_treatments(patient_timeseries, therapies):
+    """Convert somewhat messy list of therapies to better-defined therapies and replace in patient profiles.
+    Some therapies have different names (pick a definitive one)
+    Combine uncommon therapies into an 'Other' category"""
+
+    # First get the number of patients on each therapy and look at the list to decide below
+    t = dict.fromkeys(therapies, 0)
+    for patient, tis in patient_timeseries.items():
+        for ti in tis:
+            t[ti] += 1
+
+    # Look at the main ones and decide by eye
+    #   All other therapies are put into a catch-all called 'Other'
+    main_therapies = ['Bortezomib', 'Carfilzomib', 'Cyclophosphamide', 'Dexamethasone', 'Lenalidomide' ,'Melphalan']
+
+    # Map misspellings of main therapies to above
+    map_misspell = {
+        'Melfalan': 'Melphalan'
+    }
+
+    # Map all thalidomide derivatives to Lenalidamide - there's a lot less of them but they're probably significant for the same reason
+    #   And just OR the treatment statuses
+    map_lidomides = {
+        'Pomalidomide': 'Lenalidomide',
+        'Thalidomide': 'Lenalidomide'
+    }
+
+    # Remap all patients
+    n_times = patient_timeseries['MMRF_1011']['Bortezomib'].size  # sample that should be present
+    patient_therapies_ = {}
+    for patient, tis in patient_timeseries.items():
+        tis_ = {}
+        val_lidomides = np.zeros((n_times,), dtype=np.int8)
+        val_others = np.zeros((n_times,), dtype=np.int8)
+
+        for ti, vals in tis.items():
+            if ti in map_misspell:
+                tis_[map_misspell[ti]] = vals
+            elif ti in map_lidomides or ti == 'Lenalidomide':
+                val_lidomides = np.logical_or(val_lidomides, vals)
+            elif ti in main_therapies:
+                tis_[ti] = vals
+            else:
+                val_others = np.logical_or(val_others, vals)
+
+        tis_['Lenalidomide'] = val_lidomides.astype(np.int8)
+        tis_['Other'] = val_others.astype(np.int8)
+
+        patient_therapies_[patient] = tis_
+
+    main_therapies.append('Other')
+    return patient_therapies_, main_therapies
+
+
 def build_treatment_features(patient_therapies, time_interval=90, time_final=3650):
     """Convert treatment data in the form of intervals to timeseries features. Inputs are in days."""
     # Create timeseries for each patient
@@ -147,8 +202,25 @@ def build_treatment_features(patient_therapies, time_interval=90, time_final=365
 if __name__ == '__main__':
     patient_therapies, therapies = build_treatment_resps()
     patient_timeseries, intervals = build_treatment_features(patient_therapies)
+    patient_timeseries, therapies = cleanup_treatments(patient_timeseries, therapies)
+
+    # Build patients x therapy x time matrix
+    n_patients = len(patient_timeseries)
+    n_therapies = len(therapies)
+    n_times = len(intervals)
+    patients = list(patient_timeseries.keys())
+    data = np.zeros((n_patients, n_therapies, n_times), dtype=np.int8)
+    for i in range(n_patients):
+        patient = patients[i]
+        for j in range(n_therapies):
+            therapy = therapies[j]
+            if therapy in patient_timeseries[patient]:
+                data[i,j,:] = patient_timeseries[patient][therapy]
 
     data_dir = 'data/processed'
     treatment_features_file = 'patient_treatment_timeseries'
     with open(os.path.join(data_dir, treatment_features_file), 'wb') as f:
         f.write(cmsgpack.packb((patient_timeseries, intervals)))
+
+    treatment_matrix_file = os.path.join(data_dir, 'patient_treatment_matrix.mat')
+    sio.savemat(treatment_matrix_file, {'data': data, 'patients': patients, 'therapies': therapies, 'intervals': intervals})
