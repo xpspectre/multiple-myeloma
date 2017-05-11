@@ -96,11 +96,13 @@ survey_agg = data[['PUBLIC_ID', 'VISIT']]
 # Drop spectrum id
 data.drop('SPECTRUM_SEQ', axis=1, inplace=True)
 
-# Keep visit day but drop coarse-grained visit interval
+# Keep visit index VISIT
+
+# Drop coarse-grained visit interval
 data.drop('VJ_INTERVAL', axis=1, inplace=True)
 
-# Drop informed consent day
-data.drop('VISITDY', axis=1, inplace=True)
+# Keep visit day VISITDY
+#   This is probably not the Date of Informed Consent as in the label file
 
 ########################################################################################################################
 

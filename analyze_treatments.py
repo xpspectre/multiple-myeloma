@@ -208,14 +208,14 @@ if __name__ == '__main__':
     n_patients = len(patient_timeseries)
     n_therapies = len(therapies)
     n_times = len(intervals)
-    patients = list(patient_timeseries.keys())
+    patients = sorted(list(patient_timeseries.keys()))
     data = np.zeros((n_patients, n_therapies, n_times), dtype=np.int8)
     for i in range(n_patients):
         patient = patients[i]
         for j in range(n_therapies):
             therapy = therapies[j]
             if therapy in patient_timeseries[patient]:
-                data[i,j,:] = patient_timeseries[patient][therapy]
+                data[i, j, :] = patient_timeseries[patient][therapy]
 
     data_dir = 'data/processed'
     treatment_features_file = 'patient_treatment_timeseries'
