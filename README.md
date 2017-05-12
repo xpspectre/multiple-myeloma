@@ -11,7 +11,7 @@ source activate mm-env
 pip install tensorflow msgpack-numpy fancyimpute
 ```
 
-Warning: `fancyimpute` has a lot of dependencies.
+Warning: `fancyimpute` has a lot of dependencies. So it's use has been suppressed for now. Use R's MICE package or similar to do imputation for now.
 
 Make a symlink in this directory to the data store
 ```
@@ -28,6 +28,19 @@ The following scripts place new csv files in the data store subdir `processed/`.
 2. Run `prep_clinical_data.py` to clean up the per-visit cols and generate a main clinical data file. See the comments in the file for details. A bunch of cols are dropped from the main data table and split off into their own tables, which can be further processed as needed.
 3. Run `prep_baseline_clinical_data.py` to get the aggregated baseline/screening data.
 4. Decide which endpoint you're interested in and grab it from the result of `prep_patient_data.py` or `prep_clinical_data.py`.
+
+## Baseline Genomics Data Prep
+
+1. Run `prep_mut.m` to get incidence of common mutations. Generates mutations-per-patient for GO enrichment analysis (which may be useful).
+2. Run `prep_rnaseq.m` to process RNAseq expression data and generate input files and script for GSEA. To run GSEA, download the gene lists and gene chip from the Broad site.
+3. Run `analyze_rnaseq_individual.m` to get a subset of genes whose expression individually correlate to survival and turn those into features directly.
+
+## Timeseries Data Prep
+
+This requires all the baseline data.
+
+1. Run `analyze_treatments.py` to collect treatments over time and turn into a tensor of patient x treatment x time interval.
+2. Run `analyze_timeseries.m` to get a patients x features + outcomes matrix suitable for simple prediction tasks (like disease progression at the next interval given the current interval and treatment regimen).
 
 ## Survival Analysis
 

@@ -4,7 +4,7 @@
 clear; close all; clc
 rng('default');
 
-run_survival = 1;
+run_survival = 2;
 
 baseline_feature_file = 'data/processed/rnaseq_cufflinks_fpkm_baseline_features.mat';
 endpoints_file = 'data/processed/baseline_clinical_endp.csv';
@@ -114,7 +114,7 @@ for ib = 1:nb
     gene_id = gene_ids{ib};
     col_name = [gene_id '_expr'];
     col_pos = find(ismember(all_gene_ids, gene_id));
-    T.(col_name) = Mz(:,col_pos);
+    T.(col_name) = M(:,col_pos);
 end
 
 save(sig_gene_output_file, 'T', 'bs', 'ps', 'gene_ids', 'gene_symbols', 'gene_descs')
