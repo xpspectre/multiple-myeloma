@@ -26,7 +26,7 @@ visit_data = visit_data.loc[visit_data['VISIT'] <= 0]
 # unique_ids = data['PUBLIC_ID'].unique()
 # print(unique_ids)
 visit_data = visit_data.groupby('PUBLIC_ID').mean()
-visit_data.drop('VISIT', axis=1, inplace=True)
+visit_data.drop(['VISIT', 'VISITDY'], axis=1, inplace=True)
 
 # Combine demographic and visit data
 data = demo_data

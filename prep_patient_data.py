@@ -93,9 +93,25 @@ data.drop('D_PT_lstalive', axis=1, inplace=True)
 data.drop(['CLINICAL', 'RANDOM', 'gender_char', 'race_char', 'informed_consent_version', 'Date_of_diagnosis',
            'ENROLLED'], axis=1, inplace=True)
 
-# Keep apparant Palumbo col but actually applies to everyone: demog_height (in) and demog_weight (lb)
+# Keep apparant Palumbo col but actually applies to everyone: demog_height and demog_weight
 
-# Drop units for height and weight
+# Standardize height and weight according to units
+#   Use cm for height
+#   Use kg for weight
+height_map = {
+    'cm': 1.0,
+    'in': 2.54
+}
+data['DEMOG_HEIGHTUNITOFM'] = data['DEMOG_HEIGHTUNITOFM'].replace(height_map)
+data['demog_height'] = data['demog_height'] * data['DEMOG_HEIGHTUNITOFM']
+weight_map = {
+    'kg': 1.0,
+    'lb': 0.4536
+}
+data['DEMOG_WEIGHTUNITOFM'] = data['DEMOG_WEIGHTUNITOFM'].replace(weight_map)
+data['demog_weight'] = data['demog_weight'] * data['DEMOG_WEIGHTUNITOFM']
+
+# Drop cols for height and weight
 data.drop(['DEMOG_HEIGHTUNITOFM', 'DEMOG_WEIGHTUNITOFM'], axis=1, inplace=True)
 
 # ISS disease stage "endpoint": D_PT_iss
