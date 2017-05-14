@@ -5,8 +5,8 @@ clear; close all; clc
 rng('default');
 
 % Switches for expensive steps
-interval_avg = 2;
-impute = 2;
+interval_avg = 1;
+impute = 1;
 assemble_pred_prob = 2;
 
 interval_avg_file = 'data/processed/timeseries_interval_avg.mat';
@@ -176,7 +176,6 @@ switch impute
                 xq = x_(missing);
                 try
                     vq = interp1(x, v, xq, 'linear', 'extrap');
-                    vq = max(vq, 0); % all vals must be non-negative (negative can occur when extrapolating)
                 catch
                     % do nothing - leave as all NaN (or all but 1 NaN)
                     vq = nan(sum(missing),1);
@@ -190,6 +189,35 @@ switch impute
     case 1
         loaded = load(impute_file);
         t_data = loaded.t_data;
+end
+
+%% Postprocess imputed data
+% The imputation method is dumb and doesn't respect limits of col values
+cols = t_data.Properties.VariableNames(3:end-1); % except PUBLIC_ID, INTERVAL, and TREATMENTRESP
+n_cols = length(cols);
+% All selected cols need to be non-negative
+for i = 1:n_cols
+    col = cols{i};
+    t_data{:,col} = max(t_data{:,col}, 0);
+end
+
+% ECOG is only from 0 to 5
+t_data{:,'ECOG_PERFORMANCEST'} = min(t_data{:,'ECOG_PERFORMANCEST'}, 5);
+
+% Treatment response is from -1 to 6
+t_data{:,'TREATMENTRESP'} = max(t_data{:,'TREATMENTRESP'}, -1);
+t_data{:,'TREATMENTRESP'} = min(t_data{:,'TREATMENTRESP'}, 6);
+
+% Threshold binary variables
+bin_cols = {'PN_PERIPHERALSEN', 'PN_PERIPHERALMOT', 'RU_DIDTHEPATIENT2', 'RU_DIDTHEPATIENT', ...
+    'SS_DOESTHEPATIEN', 'SS_SPINALCORDCOM', 'SS_BONEPAIN', 'SS_FATIGUE', ...
+    'SS_HYPERCALCEMIA', 'SS_RENALINSUFFIC', 'SS_ANEMIAHEMOGLO', 'SS_BONELESIONSLY', ...
+    'SS_BONELESIONSOS', 'SS_SOFTTISSUEPLA', 'SS_OFTTISSUEPLAS', 'SS_RECURRENTBACT', ...
+    'SS_SYMPTOMATICHY', 'SS_AMYLOIDOSIS', 'SS_OTHER' };
+n_bin_cols = length(bin_cols);
+for i = 1:n_bin_cols
+    col = bin_cols{i};
+    t_data{:,col} = double(t_data{:,col} > 0.5);
 end
 
 %% Build prediction problem
