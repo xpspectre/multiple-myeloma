@@ -5,6 +5,8 @@
 % Replaces the prep_rnaseq_data.py file
 % Run this after prep_mut.m, which extracts a sub-table from the per-visit
 %   csv data to match patient PUBLIC_ID with sequencing IDs
+% Make sure the gene set file h.all.v6.0.symbols.gmt and the gene chip file
+%   GENE_SYMBOL.chip are present in the data/processed/ dir.
 % Notes for classifiers:
 %   - Can z-score each gene if using them as raw features
 %   - Run 2-sample t-tests for each gene vs outcome of interest and keep to
@@ -28,6 +30,13 @@ missing_genes_file = 'data/processed/genes_to_lookup.txt';
 gsea_inputs_dir = 'data/processed/gsea/';
 gsea_outputs_dir = 'data/processed/gsea_outputs/';
 gsea_cmd_file = 'rnaseq_cufflinks_fpkm_gsea_cmds.sh'; % Generate script to run GSEA in an automated fashion
+
+if ~exist(gsea_inputs_dir, 'dir')
+    mkdir(gsea_inputs_dir);
+end
+if ~exist(gsea_outputs_dir, 'dir')
+    mkdir(gsea_outputs_dir);
+end
 
 %% Load main RNAseq file
 switch load_raw

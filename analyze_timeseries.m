@@ -7,8 +7,8 @@ clear; close all; clc
 rng('default');
 
 % Switches for expensive steps
-interval_avg = 1;
-impute = 1;
+interval_avg = 2;
+impute = 2;
 add_deltas = 2;
 assemble_pred_prob = 2;
 
