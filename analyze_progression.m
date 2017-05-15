@@ -7,13 +7,13 @@ baseline_file = 'data/processed/imputed_h_and_w_update.csv';
 treatments_file = 'data/processed/patient_treat.csv'; % baseline treatments includes SCT
 
 % Progression mapping strategy
-prog_map = 'orig'; % original progressive disease = 1, sCR = 6
-% prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcomes shifted down, negative outcome made more negative
+% prog_map = 'orig'; % original progressive disease = 1, sCR = 6
+prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcomes shifted down, negative outcome made more negative
 % prog_map = 'simple'; % stable disease = 0, good = +1, worse = -1
 
 % Test-validate-train split
-tt_split = 'by-obs';
-% tt_split = 'by-patient'; % fairer than obs?
+% tt_split = 'by-obs';
+tt_split = 'by-patient'; % fairer than obs?
 
 % Load timeseries data
 loaded = load(assembled_pred_prob_file);
@@ -75,7 +75,10 @@ data(:,hold_out_cols) = [];
 
 % Throw out some cols that behave badly
 %   The AT_* cols that are differences from last time aren't coded very well
-drop_cols = {'AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', 'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF'};
+drop_cols = {'AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', ...
+    'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF'};
+drop_delta_cols = strcat('delta_', drop_cols);
+drop_cols = [drop_cols, drop_delta_cols, 'delta_SS_SYMPTOMATICHY']; % last one has issues
 data(:,drop_cols) = [];
 
 % Throw out any cols that are constant - single val for all rows
@@ -167,19 +170,19 @@ data_train = data(data.TTSET == 1,:);
 data_test = data(data.TTSET == 3,:) ;
 
 % Turn into features X and outputs y
-drop_cols = {'PUBLIC_ID', 'PROGRESSION', 'TTSET'};
+drop_cols = {'PUBLIC_ID', 'TTSET'};
 X_train = data_train;
 X_train(:,drop_cols) = [];
-X_train = table2array(X_train);
-y_train = data_train.PROGRESSION;
+% X_train = table2array(X_train);
+% y_train = data_train.PROGRESSION;
 
 X_test = data_test;
 X_test(:,drop_cols) = [];
-X_test = table2array(X_test);
-y_test = data_test.PROGRESSION;
+% X_test = table2array(X_test);
+% y_test = data_test.PROGRESSION;
 
 col_names = data_train.Properties.VariableNames;
-col_names = ['intercept', col_names];
+% col_names = ['intercept', col_names];
 
 % Some diagnostic plots
 % Distribution of progression - not normalize
@@ -192,25 +195,33 @@ col_names = ['intercept', col_names];
 
 % Run some regressions
 %   glmfit defaults to adding a y-intercept term as the 1st feature automatically
-[beta, dev, stats] = glmfit(X_train, y_train);
+% [beta, dev, stats] = glmfit(X_train, y_train);
+mdl = fitglm(X_train, 'ResponseVar', 'PROGRESSION');
+% mdl = stepwiseglm(X_train, y_train, 'interactions', 'VarNames', col_names); % takes forever, unprincipled
+
+mdl
 
 % Display sorted significant params
-pvals = stats.p;
-pval_cutoff = 0.05;
-keep = pvals <= pval_cutoff;
-beta = beta(keep);
-pvals = pvals(keep);
-col_names = col_names(keep);
-[~, sort_ind] = sort(abs(beta), 'descend');
-fprintf('Beta\tpval\tName\n')
-for i = 1:length(beta)
-    ind = sort_ind(i);
-    fprintf('%8.3f\t%5.4f\t%s\n', beta(ind), pvals(ind), col_names{ind})
-end
+% pvals = stats.p;
+% pval_cutoff = 0.1;
+% keep = pvals <= pval_cutoff;
+% beta = beta(keep);
+% pvals = pvals(keep);
+% col_names = col_names(keep);
+% [~, sort_ind] = sort(abs(beta), 'descend');
+% fprintf('Beta\tpval\tName\n')
+% for i = 1:length(beta)
+%     ind = sort_ind(i);
+%     fprintf('%8.3f\t%5.4f\t%s\n', beta(ind), pvals(ind), col_names{ind})
+% end
 
 % Analysis
 % Higher PROGRESSION = better => positive beta = predicts good result
 % Higher ECOG_PERFORMANCEST means worse results (0 = normal, 5 = dead)
 % !!! Naive analysis suggests SCT helps, but Cyclophosphamide and Dexamethasone hurt !!!
 %   Possible Simpson's paradox: these drugs go to sicker patients
+%   Many common drugs show this - drugs are given to sick patients (which
+%   have a higher chance of dying soon) and OK patients (a while since last
+%   episode) are more likely to be OK.
 %   -> Need to regress on severity, then treatments
+

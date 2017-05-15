@@ -1,16 +1,20 @@
 %% Analyze per-visit data over time
 % No genomic data for now (or ever: we don't have much of that during follow-up visits)
 % Setup: fill in missing time data, break into 3 month chunks for analysis
+% Save current TREATMENTRESP as PROGRESSION_CURR - this is a feature that
+%   indicates current severity
 clear; close all; clc
 rng('default');
 
 % Switches for expensive steps
 interval_avg = 1;
 impute = 1;
+add_deltas = 2;
 assemble_pred_prob = 2;
 
 interval_avg_file = 'data/processed/timeseries_interval_avg.mat';
 impute_file = 'data/processed/timeseries_impute.mat';
+add_deltas_file = 'data/processed/timeseries_add_deltas.mat';
 assembled_pred_prob_file = 'data/processed/timeseries_assembled_pred_prob.mat';
 
 %% Load data
@@ -220,6 +224,46 @@ for i = 1:n_bin_cols
     t_data{:,col} = double(t_data{:,col} > 0.5);
 end
 
+%% Augment with change in parameter since last measurement
+% To try to better satisfy the Markov property
+switch add_deltas
+    case 2
+        cols = t_data.Properties.VariableNames(3:end); % all cols except PUBLIC_ID and INTERVAL
+        n_cols = length(cols);
+        delta_cols = strcat('delta_', cols);
+        nr = height(t_data);
+        delta_vals = zeros(nr,n_cols);
+        for ir = 1:nr
+            patient = t_data{ir,'PUBLIC_ID'}{1};
+            interval = t_data{ir,'INTERVAL'};
+            
+            curr_vals = t_data{ir,3:end};
+            
+            % Go back until a prev interval is found or notice you're a baseline measurement
+            prev_interval = interval - 1;
+            prev_vals = zeros(1,n_cols);
+            while prev_interval >= 0 % going negative indicates that was the 1st interval (probably baseline)
+                row = find(strcmp(t_data.PUBLIC_ID, patient) & t_data.INTERVAL == prev_interval);
+                if ~isempty(row) % found previous interval
+                    prev_vals = t_data{row,3:end};
+                    break
+                end
+                prev_interval = prev_interval - 1; % previous interval missing, go back another
+            end
+            delta_vals(ir,:) = curr_vals - prev_vals;
+        end
+        
+        delta_table = array2table(delta_vals, 'VariableNames', delta_cols);
+        t_data = [t_data, delta_table];
+        
+        save(add_deltas_file, 't_data');
+    case 1
+        loaded = load(add_deltas_file);
+        t_data = loaded.t_data;
+    case 0
+        % don't add deltas
+end
+
 %% Build prediction problem
 switch assemble_pred_prob
     case 2
@@ -235,21 +279,19 @@ switch assemble_pred_prob
             t_data.(therapy) = nan(nr,1);
         end
         
-        % Placeholder for progression
+        % Placeholder for progressions
         t_data.PROGRESSION = nan(nr,1);
+        t_data.PROGRESSION_CURR = nan(nr,1); % this is just TREATMENTRESP
         
         % Modify t_data so that each row is an observation, where
         %   - the last col PROGRESSION is the output
         %   - the other cols are features
         for ir = 1:height(t_data);
             % Get measurements at interval (e.g., 0, 1)
+            patient = t_data{ir,'PUBLIC_ID'}{1};
+            interval = t_data{ir,'INTERVAL'};
+            
             % Get treatment at next interval (e.g., 0, 1) (treatment data offset by 1 interval)
-            % Get progression at next interval (e.g., 1, 2)
-            
-            t_data_i = t_data(ir,:);
-            patient = t_data_i.PUBLIC_ID{1};
-            interval = t_data_i.INTERVAL;
-            
             treat_ind = find(ismember(treat.patients, patient));
             treat_data = treat.data(treat_ind,:,interval+1); % 1-based indexing
             for i = 1:n_th;
@@ -257,6 +299,10 @@ switch assemble_pred_prob
                 t_data{ir,therapy} = treat_data(i);
             end
             
+            % Get progression at current interval (e.g., 0, 1)
+            t_data{ir,'PROGRESSION_CURR'} = t_data{ir,'TREATMENTRESP'};
+            
+            % Get progression at next interval (e.g., 1, 2)
             next_interval = interval + 1;
             row = find(strcmp(t_data.PUBLIC_ID, patient) & t_data.INTERVAL == next_interval);
             if isempty(row)
