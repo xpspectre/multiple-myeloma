@@ -7,8 +7,8 @@ clear; close all; clc
 rng('default');
 
 % Switches for expensive steps
-interval_avg = 2;
-impute = 2;
+interval_avg = 1;
+impute = 1;
 add_deltas = 2;
 assemble_pred_prob = 2;
 
@@ -154,6 +154,7 @@ fprintf('%i cols kept with > %g frac data present\n', n_cols, present_cutoff)
 
 %% Impute missing data
 % For each patient, fill in missing data, including TREATMENTRESP
+% Record imputed vals so plots later can note them
 % TODO: Figure out blocks that are all NaNs - patient didn't have ANY (or
 %   only had 1) measurements at any visit
 % TODO: Alternative is Gaussian process or something
@@ -163,6 +164,13 @@ switch impute
         cols = t_data.Properties.VariableNames;
         cols = setdiff(cols, always_keep);
         n_cols = length(cols);
+        
+        % Keep a companion table that tracks present/absent data
+        t_present = t_data;
+        for i = 1:n_cols
+            col = cols{i};
+            t_present.(col) = ~isnan(t_present.(col));
+        end
         
         patients = unique(data.PUBLIC_ID);
         np = length(patients);
@@ -189,10 +197,11 @@ switch impute
             end
             t_data(patient_pos,:) = t_data_i;
         end
-        save(impute_file, 't_data');
+        save(impute_file, 't_data', 't_present');
     case 1
         loaded = load(impute_file);
         t_data = loaded.t_data;
+        t_present = loaded.t_present;
 end
 
 %% Postprocess imputed data
@@ -208,8 +217,8 @@ end
 % ECOG is only from 0 to 5
 t_data{:,'ECOG_PERFORMANCEST'} = min(t_data{:,'ECOG_PERFORMANCEST'}, 5);
 
-% Treatment response is from -1 to 6
-t_data{:,'TREATMENTRESP'} = max(t_data{:,'TREATMENTRESP'}, -1);
+% Treatment response is from 1 to 6
+t_data{:,'TREATMENTRESP'} = max(t_data{:,'TREATMENTRESP'}, 1);
 t_data{:,'TREATMENTRESP'} = min(t_data{:,'TREATMENTRESP'}, 6);
 
 % Threshold binary variables
@@ -305,17 +314,20 @@ switch assemble_pred_prob
             % Get progression at next interval (e.g., 1, 2)
             next_interval = interval + 1;
             row = find(strcmp(t_data.PUBLIC_ID, patient) & t_data.INTERVAL == next_interval);
-            if isempty(row)
+            if isempty(row) % Skip if result is unknown - this row will be dropped shortly
                 continue
             end
             t_data{ir,'PROGRESSION'} = t_data{row,'TREATMENTRESP'};
         end
         t_data.TREATMENTRESP = [];
         
-        % Drop rows where there's no output
-        t_data(isnan(t_data.PROGRESSION),:) = [];
-        save(assembled_pred_prob_file, 't_data')
+        % Drop rows where there's no output - these can't be predicted
+        drop_rows = isnan(t_data.PROGRESSION);
+        t_data(drop_rows,:) = [];
+        t_present(drop_rows,:) = [];
+        save(assembled_pred_prob_file, 't_data', 't_present');
     case 1
         loaded = load(assembled_pred_prob_file);
         t_data = loaded.t_data;
+        t_present = loaded.t_present;
 end

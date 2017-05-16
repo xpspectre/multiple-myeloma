@@ -7,8 +7,8 @@ baseline_file = 'data/processed/imputed_h_and_w_update.csv';
 treatments_file = 'data/processed/patient_treat.csv'; % baseline treatments includes SCT
 
 % Progression mapping strategy
-% prog_map = 'orig'; % original progressive disease = 1, sCR = 6
-prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcomes shifted down, negative outcome made more negative
+prog_map = 'orig'; % original progressive disease = 1, sCR = 6
+% prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcomes shifted down, negative outcome made more negative
 % prog_map = 'simple'; % stable disease = 0, good = +1, worse = -1
 
 % Test-validate-train split
@@ -18,29 +18,44 @@ tt_split = 'by-patient'; % fairer than obs?
 % Load timeseries data
 loaded = load(assembled_pred_prob_file);
 data = loaded.t_data;
+present = loaded.t_present;
 
 % Clean up timeseries data
 %   Map progression as desired
 %   Note that interpolated data won't be the clean original 1-6
+% In all cases, make neutral = 0, bad = negative, good = positive
 n = height(data);
-switch prog_map
-    case 'orig'
-        prog = round(data.PROGRESSION);
-        prog(prog < 1) = -1;
-        prog(prog > 6) = 6;
-    case 'orig-centered'
-        prog = round(data.PROGRESSION);
-        prog(prog < 1) = -1;
-        prog(prog > 6) = 6;
-        prog = prog - 2; % stable disease = 2, shift to 0
-        prog(prog < 0) = -3; % extra weight to progressive disease, tunable
-    case 'simple'
-        prog = round(data.PROGRESSION);
-        prog(prog < 2) = -1;
-        prog(prog == 2) = 0;
-        prog(prog > 2) = 1; % this is same to ordering of overwriting ops
+prog_cols = {'PROGRESSION', 'PROGRESSION_CURR'};
+for i = 1:2
+    prog_col = prog_cols{i};
+    switch prog_map
+        case 'orig' % mak
+            prog = round(data.(prog_col));
+            prog(prog < 1) = 1;
+            prog(prog > 6) = 6;
+            prog = prog - 2;
+            prog_val = -1:4;
+            prog_names = {'Progressive Disease', 'Stable Disease', ...
+                'Partial Response', 'Very Good Partial Response (VGPR)', ...
+                'Complete Response', 'Stringent Complete Response (sCR)'}; % too long for yticks
+            prog_names = {'Progressive', 'Stable', ...
+                'Partial Resp', 'VGPR', ...
+                'CR', 'sCR'};
+        case 'orig-centered'
+            prog = round(data.(prog_col));
+            prog(prog < 1) = -1;
+            prog(prog > 6) = 6;
+            prog = prog - 2; % stable disease = 2, shift to 0
+            prog(prog < 0) = -3; % extra weight to progressive disease, tunable
+        case 'simple'
+            prog = round(data.(prog_col));
+            prog(prog < 2) = -1;
+            prog(prog == 2) = 0;
+            prog(prog > 2) = 1; % this is same to ordering of overwriting ops
+    end
+    data.(prog_col) = prog;
 end
-data.PROGRESSION = prog;
+
 % Quick and dirty validate prog vals
 % unique(prog)
 % figure
@@ -63,6 +78,115 @@ treat_keep = {'PUBLIC_ID', 'line1sct'};
 treat = treat(:,treat_keep);
 
 data = join(data, treat, 'Keys', 'PUBLIC_ID'); % datapoint present for everyone
+
+%% Display some patient profiles
+% Collect data
+patient = 'MMRF_1011';
+patient_rows = strcmp(patient, data.PUBLIC_ID);
+x = data(patient_rows,:);
+x_present = present(patient_rows,:);
+start = min(x.INTERVAL);
+stop = max(x.INTERVAL);
+intervals = x.INTERVAL;
+
+lab_cols = {'D_LAB_cbc_abs_neut', 'D_LAB_chem_albumin', 'D_LAB_chem_bun', ...
+    'D_LAB_chem_calcium', 'D_LAB_chem_creatinine', 'D_LAB_chem_glucose', ...
+    'D_LAB_cbc_hemoglobin', 'D_LAB_chem_ldh', ...
+    'D_LAB_cbc_platelet', 'D_LAB_chem_totprot', 'D_LAB_cbc_wbc'};
+lab_names = cellfun(@(x) x(7:end), lab_cols, 'UniformOutput', false);
+lab_vals = table2array(x(:,lab_cols));
+lab_vals_present = table2array(x_present(:,lab_cols));
+lab_vals_marks = lab_vals;
+lab_vals_marks(~lab_vals_present) = NaN;
+
+mm_lab_cols = {'D_LAB_serum_kappa', 'D_LAB_serum_m_protein', 'D_LAB_serum_iga', ...
+    'D_LAB_serum_igg', 'D_LAB_serum_igm', 'D_LAB_serum_lambda'};
+mm_lab_names = cellfun(@(x) x(7:end), mm_lab_cols, 'UniformOutput', false);
+mm_lab_vals = table2array(x(:,mm_lab_cols));
+mm_lab_vals_present = table2array(x_present(:,mm_lab_cols));
+mm_lab_vals_marks = mm_lab_vals;
+mm_lab_vals_marks(~mm_lab_vals_present) = NaN;
+
+treatment_cols = {'Bortezomib', 'Carfilzomib', 'Cyclophosphamide', 'Dexamethasone', ...
+    'Lenalidomide', 'Melphalan', 'Other'};
+n_treatments = length(treatment_cols);
+treatments = table2array(x(:,treatment_cols));
+tr = cell(1,n_treatments); % line segments of intervals
+for i = 1:n_treatments
+    tri = zeros(0,4); % [x1 x2 y1 y2]
+    tri_inds = find(treatments(:,i));
+    intervals_i = intervals(tri_inds);
+    n_tri_inds = length(tri_inds);
+    for j = 1:n_tri_inds
+        interval_start = intervals_i(j);
+        interval_stop = interval_start + 1;
+        tri = [tri; interval_start, interval_stop, i, i];
+    end
+    tr{i} = tri;
+end
+
+prog = x.PROGRESSION;
+
+
+% Make plots
+% Subplots 1,2, and 3 are offset by half to indicate middle of interval
+figure('Position', [300,300,900,900])
+subplot(4,1,1)
+plot(intervals - 0.5, log10(lab_vals))
+hold on
+ax = gca;
+ax.ColorOrderIndex = 1;
+plot(intervals - 0.5, log10(lab_vals_marks), '+')
+hold off
+xlim([start - 1, stop + 1])
+ylabel('log_{10} Value')
+legend(lab_names, 'Location', 'east', 'Interpreter', 'none')
+legend('boxoff')
+title('General Lab Measurements')
+
+subplot(4,1,2)
+plot(intervals - 0.5, log10(mm_lab_vals))
+hold on
+ax = gca;
+ax.ColorOrderIndex = 1;
+plot(intervals - 0.5, log10(mm_lab_vals_marks), '+')
+hold off
+xlim([start - 1, stop + 1])
+ylabel('log_{10} Value')
+legend(mm_lab_names, 'Location', 'east', 'Interpreter', 'none')
+legend('boxoff')
+title('Multiple Myeloma Lab Measurements')
+
+subplot(4,1,3)
+hold on
+ax = gca;
+for i = 1:n_treatments
+    tri = tr{i};
+    n_tri_inds = size(tri,1);
+    for j = 1:n_tri_inds
+        ax.ColorOrderIndex = i;
+        trij = tri(j,:);
+        plot(trij(1:2), trij(3:4))
+    end
+end
+hold off
+set(gca, 'YTick', 1:n_treatments)
+set(gca, 'YTickLabel', treatment_cols)
+xlim([start - 1, stop + 1])
+ylim([0, n_treatments+1])
+title('Treatments')
+
+subplot(4,1,4)
+ax = gca;
+plot(intervals - 0.5, prog, '+-')
+set(gca, 'YTick', prog_val)
+set(gca, 'YTickLabel', prog_names)
+ylim([min(prog_val) - 1, max(prog_val)+1])
+ylabel('Progression')
+xlabel('Time Interval (90 days each)')
+title('Disease Progression')
+h = suptitle(sprintf('Patient %s Profile', patient));
+set(h, 'Interpreter', 'none');
 
 %% Preprocess data for regression
 % Note/TODO: It's fairer to do the preprocessing on the
@@ -199,9 +323,10 @@ col_names = data_train.Properties.VariableNames;
 mdl = fitglm(X_train, 'ResponseVar', 'PROGRESSION');
 % mdl = stepwiseglm(X_train, y_train, 'interactions', 'VarNames', col_names); % takes forever, unprincipled
 
-mdl
 
 % Display sorted significant params
+sortrows(mdl.Coefficients, 'pValue')
+
 % pvals = stats.p;
 % pval_cutoff = 0.1;
 % keep = pvals <= pval_cutoff;
