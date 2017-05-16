@@ -28,6 +28,7 @@ The following scripts place new csv files in the data store subdir `processed/`.
 2. Run `prep_clinical_data.py` to clean up the per-visit cols and generate a main clinical data file. See the comments in the file for details. A bunch of cols are dropped from the main data table and split off into their own tables, which can be further processed as needed.
 3. Run `prep_baseline_clinical_data.py` to get the aggregated baseline/screening data.
 4. Decide which endpoint you're interested in and grab it from the result of `prep_patient_data.py` or `prep_clinical_data.py`.
+5. Run `split_train_test.m` to generate single list of patients and train-test indices for all analyses.
 
 ## Baseline Genomics Data Prep
 
