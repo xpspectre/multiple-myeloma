@@ -6,8 +6,8 @@ rng('default');
 
 % Flags for different types of processing - because some of the steps are
 %   expensive
-load_file = 1;
-slice_file = 1;
+load_file = 2;
+slice_file = 2;
 get_counts = 2;
 get_baseline_features = 2;
 load_per_visit_file = 2;
@@ -69,8 +69,11 @@ switch get_counts
             % Add all mutations to id-symbol map
             gene_id_symbol_map(gene_id) = gene_symbol;
             
-            % Only take baseline training patient data
-            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_.*+', 'tokens');
+            % Only take baseline BM training patient data
+            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_BM', 'tokens');
+            if isempty(tokens)
+                continue
+            end
             sample_time = str2double(tokens{1}{2});
             if sample_time > 1
                 continue
@@ -101,9 +104,12 @@ switch get_counts
         for is = 1:ns
             sample = samples{is};
             
-            % Keep only the baseline data
+            % Keep only the baseline BM data
             % Get counts for train and test patients; calc stats for only train patients
-            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_.*+', 'tokens');
+            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_BM', 'tokens');
+            if isempty(tokens)
+                continue
+            end
             sample_time = str2double(tokens{1}{2});
             if sample_time > 1
                 continue
@@ -200,9 +206,13 @@ switch get_baseline_features
         for is = 1:ns
             sample = samples{is};
             
-            % Keep only the baseline data
+            % Keep only the baseline BM data
             % Get counts for train and test patients; calc stats for only train patients
-            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_.*+', 'tokens');
+            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_BM', 'tokens');
+            if isempty(tokens)
+                keep_patient(is) = false;
+                continue
+            end
             sample_time = str2double(tokens{1}{2});
             if sample_time > 1
                 keep_patient(is) = false;

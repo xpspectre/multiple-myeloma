@@ -34,7 +34,8 @@ The following scripts place new csv files in the data store subdir `processed/`.
 
 1. Run `prep_mut.m` to get incidence of common mutations. Generates mutations-per-patient for GO enrichment analysis (which may be useful).
 2. Run `prep_rnaseq.m` to process RNAseq expression data and generate input files and script for GSEA. To run GSEA, download the gene lists and gene chip from the Broad site.
-3. Run `analyze_rnaseq_individual.m` to get a subset of genes whose expression individually correlate to survival and turn those into features directly.
+3. Run `analyze_rnaseq.m` to collect the RNAseq results run on the cluster into a table of patient x gene_set enriched.
+4. Run `analyze_rnaseq_individual.m` to get a subset of genes whose expression individually correlate to survival and turn those into features directly. 
 
 ## Timeseries Data Prep
 

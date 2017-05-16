@@ -15,9 +15,9 @@
 clear; close all; clc
 rng('default');
 
-load_raw = 1;
-build_gene_table = 1;
-build_dataset = 1;
+load_raw = 2;
+build_gene_table = 2;
+build_dataset = 2;
 
 test_train_split_file = 'data/processed/test_train_split.mat';
 rnaseq_file = 'data/raw/MMRF_CoMMpass_IA9_E74GTF_Cufflinks_Gene_FPKM.txt';
@@ -69,12 +69,16 @@ switch load_raw
         assert(length(gene_ids) == ng);
         fclose(f);
         
-        % Keep only the baseline data
+        % Keep only the baseline BM data
         patients = cell(ns,1);
         keep_patient = true(ns,1); % mask of baseline patients to keep
         for is = 1:ns
             sample = samples{is};
-            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_.*+', 'tokens');
+            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_BM', 'tokens');
+            if isempty(tokens)
+                keep_patient(is) = false;
+                continue
+            end
             sample_time = str2double(tokens{1}{2});
             if sample_time > 1
                 keep_patient(is) = false;
