@@ -11,15 +11,16 @@
 %   - Can z-score each gene if using them as raw features
 %   - Run 2-sample t-tests for each gene vs outcome of interest and keep to
 %   top ones only
+% Only use results from patients in the training set
 clear; close all; clc
 rng('default');
 
-load_raw = 0;
+load_raw = 1;
 build_gene_table = 1;
 build_dataset = 1;
 
+test_train_split_file = 'data/processed/test_train_split.mat';
 rnaseq_file = 'data/raw/MMRF_CoMMpass_IA9_E74GTF_Cufflinks_Gene_FPKM.txt';
-per_visit_lim_out = 'data/processed/per_visit_lim.mat';
 raw_file = 'data/processed/rnaseq_cufflinks_fpkm_raw.mat';
 baseline_feature_file = 'data/processed/rnaseq_cufflinks_fpkm_baseline_features.mat';
 gene_ids_file = 'data/processed/rnaseq_cufflinks_fpkm_gsea_gene_ids.txt';
@@ -27,9 +28,11 @@ gene_table_in = 'gene_table.txt';
 gene_table_out = 'data/processed/gene_table.mat';
 missing_genes_file = 'data/processed/genes_to_lookup.txt';
 
-gsea_inputs_dir = 'data/processed/gsea/';
-gsea_outputs_dir = 'data/processed/gsea_outputs/';
-gsea_cmd_file = 'rnaseq_cufflinks_fpkm_gsea_cmds.sh'; % Generate script to run GSEA in an automated fashion
+% Paths for large-scale GSEA
+%   Use absolute paths
+base_dir = '/data/kshi/multiple_myeloma/processed/';
+gsea_inputs_dir = '/data/kshi/multiple_myeloma/processed/gsea2/';
+gsea_outputs_dir = '/data/kshi/multiple_myeloma/processed/gsea_outputs2/';
 
 if ~exist(gsea_inputs_dir, 'dir')
     mkdir(gsea_inputs_dir);
@@ -38,6 +41,10 @@ if ~exist(gsea_outputs_dir, 'dir')
     mkdir(gsea_outputs_dir);
 end
 
+%% Load train-test split
+loaded = load(test_train_split_file);
+train_patients = loaded.patients(loaded.train_inds);
+
 %% Load main RNAseq file
 switch load_raw
     case 2
@@ -45,23 +52,44 @@ switch load_raw
         r1 = 1; % 1st row is sample name
         c1 = 2; % 1st col is gene id, 2nd col is description
         M = dlmread(rnaseq_file, '\t', r1, c1);
-        [ng,np] = size(M);
+        [ng,ns] = size(M);
         M = M'; % transpose to get proper patients x genes format
         
         % Read sample names
         f = fopen(rnaseq_file);
         line1 = fgets(f);
         headers = strsplit(line1, '\t');
-        patients = headers(3:end);
-        assert(length(patients) == np)
+        samples = headers(3:end);
+        assert(length(samples) == ns)
         
         % Read gene ids and descriptions
         C = textscan(f, '%s\t%s\t%*[^\n]');
         gene_ids = C{1};
         gene_descs = C{2};
         assert(length(gene_ids) == ng);
-        
         fclose(f);
+        
+        % Keep only the baseline data
+        patients = cell(ns,1);
+        keep_patient = true(ns,1); % mask of baseline patients to keep
+        for is = 1:ns
+            sample = samples{is};
+            tokens = regexp(sample, '^(MMRF_\d{4})_(\d)_.*+', 'tokens');
+            sample_time = str2double(tokens{1}{2});
+            if sample_time > 1
+                keep_patient(is) = false;
+                continue
+            end
+            patients{is} = tokens{1}{1};
+        end
+        
+        % Toss non-baseline samples
+        M(~keep_patient,:) = [];
+        patients(~keep_patient) = [];
+        
+        % Sort rows for convenience
+        [patients, sort_inds] = sort(patients);
+        M = M(sort_inds,:);
         
         save(raw_file, 'M', 'patients', 'gene_ids', 'gene_descs')
     case 1
@@ -94,16 +122,16 @@ switch build_gene_table
 end
 
 %% Build basic dataset
+% Decide to keep genes and calculate mean expression from training set only
+train_mask = ismember(patients, train_patients);
 switch build_dataset
     case 2
-        
-        %% Basic dataset processing
-        % Delete genes that all patients have the same val (0 probably) or close;
+        % Delete genes that all patients have the same val (0 probably) or close
         eps = 1e-6;
         [np,ng] = size(M);
         toss = false(1,ng);
         for ig = 1:ng
-            Mi = M(:,ig);
+            Mi = M(train_mask,ig);
             exp_uniq = unique(Mi);
             dev_var = std(Mi)/mean(Mi);
             if isnan(dev_var) || dev_var < eps || length(exp_uniq) == 1
@@ -113,10 +141,9 @@ switch build_dataset
         M(:,toss) = [];
         gene_ids(toss) = [];
         gene_descs(toss) = [];
-        ng = length(gene_ids);
         fprintf('Threw out %i genes where all patients had the same val\n', sum(toss))
         
-        %% Look at distribution of variances
+        % Look at distribution of variances
         devs = std(M,0,1)./mean(M,1);
         figure
         histogram(log10(devs));
@@ -124,19 +151,10 @@ switch build_dataset
         ylabel('Count')
         title('Distribution of Expression Variance by Gene')
         
-        %% Load map from per-visit patients to RNAseq patients
-        loaded = load(per_visit_lim_out);
-        vdata = loaded.vdata;
-        vdata = vdata(vdata{:,'VISIT'}<=0,:);
-        seq_ids = unique(vdata{:,'SPECTRUM_SEQ'});
-        seq_ids(strcmp('',seq_ids)) = [];
-        patient_ids = strcat(seq_ids, '_BM');
-        [keep_ids, ia, ib] = intersect(patient_ids, patients); % ib is the X rows to keep
+        % Calculate mean expression
+        Mmean = mean(M(train_mask,:), 1); % keep this for comparing patients against the pop; for fairness, only do this for the kept patients
         
-        M = M(ib,:);
-        Mmean = mean(M,1); % keep this for comparing patients against the pop; for fairness, only do this for the kept patients
-        patients = patients(ib);
-        patients = regexprep(patients,'.....$',''); % delete the last 5 chars to get the PUBLIC_ID to join on (probably)
+        % Save "complete" expression dataset
         save(baseline_feature_file, 'M', 'Mmean', 'patients', 'gene_ids', 'gene_descs')
     case 1
         load(baseline_feature_file);
@@ -151,7 +169,7 @@ ng = size(M,2);
 % Expression data
 %   Basically the original input file format
 %   Make a separate file for each analysis
-prec = 12;
+prec = 16;
 expr_files = cell(N,1);
 labels_files = cell(N,1);
 
@@ -171,9 +189,16 @@ Mmean(~keep) = [];
 M(:,~keep) = [];
 ng = length(Mmean);
 
-% Write actual files
-%   This is inefficient, but good enough
-for iN = 1:N
+% Copy needed extra files to gsea run dir
+gsea_jar = 'gsea2-2.2.4.jar';
+gene_set_file = 'h.all.v6.0.symbols.gmt';
+gene_chip_file = 'GENE_SYMBOL.chip';
+copyfile([base_dir gsea_jar], [gsea_inputs_dir gsea_jar])
+copyfile([base_dir gene_set_file], [gsea_inputs_dir gene_set_file])
+copyfile([base_dir gene_chip_file], [gsea_inputs_dir gene_chip_file])
+
+% Write input files
+parfor iN = 1:N
     patient = patients{iN};
     n_classes = 2; % MEAN and patient
     n_samples = 2;
@@ -181,54 +206,37 @@ for iN = 1:N
     fprintf('Writing files for patient %s\n', patient)
     
     % Expression data file
-    expr_file = [gsea_inputs_dir sprintf('rnaseq_cufflinks_fpkm_gsea_expr_%s.txt', patient)];
+    % Note: This is the rate-limiting step
+    expr_file = [gsea_inputs_dir sprintf('%s_expr.txt', patient)];
     f = fopen(expr_file, 'w');
     header = {'NAME', 'DESCRIPTION', 'MEAN', patient};
     fprintf(f, [strjoin(header, '\t'), '\n']);
+    expr_strs = cell(ng,1);
     for ig = 1:ng
-        vals = [Mmean(ig); M(iN,ig)]';
-        vals_strs = strread(num2str(vals, prec), '%s');
         gene_symbol = gene_symbols{ig};
         gene_name = 'na';
-        entries = [gene_symbol, gene_name, vals_strs']; % blank description
-        fprintf(f, [strjoin(entries, '\t'), '\n']);
+        expr_strs{ig} = [gene_symbol '\t' gene_name '\t' num2str(Mmean(ig), prec) '\t' num2str(M(iN,ig), prec)];
     end
+    fprintf(f, strjoin(expr_strs, '\n'));
     fclose(f);
-    expr_files{iN} = expr_file;
     
     % Phenotype labels file
     %   Each class has 1 sample, user-visible names are the same as internal names
-    labels_file = [gsea_inputs_dir sprintf('rnaseq_cufflinks_fpkm_gsea_phenotype_labels_%s.cls', patient)];
+    labels_file = [gsea_inputs_dir sprintf('%s_labels.cls', patient)];
     f = fopen(labels_file, 'w');
     fprintf(f, '%i\t%i\t1\n', n_samples, n_classes);
     names = {'MEAN', patient};
     fprintf(f, ['#\t' strjoin(names, '\t'), '\n']);
     fprintf(f, [strjoin(names, '\t'), '\n']);
     fclose(f);
-    labels_files{iN} = labels_file;
     
-%     if iN == 3
-%         break
-%     end
+    % Run script
+    run_file = [gsea_inputs_dir sprintf('run_%i.sh', iN)];
+    f = fopen(run_file, 'w');
+    fprintf(f, '#!/usr/bin/env bash\n');
+    fprintf(f, '# Run GSEA for patient %s\n', patient);
+    fprintf(f, 'java -cp gsea2-2.2.4.jar -Xmx1024m xtools.gsea.Gsea -res %s -cls %s#%s_versus_MEAN -gmx %s -collapse false -mode Max_probe -norm meandiv -nperm 1000 -permute gene_set -rnd_type no_balance -scoring_scheme weighted -metric Signal2Noise -sort real -order descending -chip %s -include_only_symbols true -make_sets true -median false -num 100 -plot_top_x 20 -rnd_seed timestamp -save_rnd_lists false -set_max 500 -set_min 15 -zip_report false -out %s -gui false -rpt_label %s\n', expr_file, labels_file, patient, gene_set_file, gene_chip_file, gsea_outputs_dir, patient);
+    fclose(f);
+    system(['chmod 744 ' run_file]);
 end
-
-%% Command to run GSEA
-% Make sure the gsea jar is in this dir and run this script from this dir.
-gene_set_file = 'data/processed/h.all.v6.0.symbols.gmt';
-gene_chip_file = 'data/processed/GENE_SYMBOL.chip';
-f = fopen(gsea_cmd_file, 'w');
-fprintf(f, '#!/usr/bin/env bash\n');
-fprintf(f, '# Script to run GSEA on all the patients vs MEAN\n');
-for iN = 1:N
-    patient = patients{iN};
-    expr_file = expr_files{iN};
-    label_file = labels_files{iN};
-    fprintf(f, 'java -cp gsea2-2.2.4.jar -Xmx1024m xtools.gsea.Gsea -res %s -cls %s#%s_versus_MEAN -gmx %s -collapse false -mode Max_probe -norm meandiv -nperm 1000 -permute gene_set -rnd_type no_balance -scoring_scheme weighted -metric Signal2Noise -sort real -order descending -chip %s -include_only_symbols true -make_sets true -median false -num 100 -plot_top_x 20 -rnd_seed timestamp -save_rnd_lists false -set_max 500 -set_min 15 -zip_report false -out %s -gui false -rpt_label %s\n', expr_file, label_file, patient, gene_set_file, gene_chip_file, gsea_outputs_dir, patient);
-    
-%     if iN == 3
-%         break
-%     end
-end
-fclose(f);
-
 

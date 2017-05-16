@@ -6,7 +6,7 @@ rng('default');
 raw_enrichment = 2;
 
 gene_set_file = 'data/processed/h.all.v6.0.symbols.gmt';
-gsea_outputs_dir = 'data/processed/gsea_outputs/';
+gsea_outputs_dir = 'data/processed/gsea_outputs2/';
 
 raw_enrichment_file = 'data/processed/gsea_features_raw_enrichment.mat';
 enrichment_file = 'data/processed/gsea_features_enrichment.mat';
