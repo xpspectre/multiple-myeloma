@@ -7,8 +7,8 @@ baseline_file = 'data/processed/imputed_h_and_w_update.csv';
 treatments_file = 'data/processed/patient_treat.csv'; % baseline treatments includes SCT
 
 % Progression mapping strategy
-prog_map = 'orig'; % original progressive disease = 1, sCR = 6
-% prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcomes shifted down, negative outcome made more negative
+% prog_map = 'orig'; % original progressive disease = 1, sCR = 6
+prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcomes shifted down, negative outcome made more negative
 % prog_map = 'simple'; % stable disease = 0, good = +1, worse = -1
 
 % Test-validate-train split
@@ -24,34 +24,43 @@ present = loaded.t_present;
 %   Map progression as desired
 %   Note that interpolated data won't be the clean original 1-6
 % In all cases, make neutral = 0, bad = negative, good = positive
+%   Make death the most negative
 n = height(data);
 prog_cols = {'PROGRESSION', 'PROGRESSION_CURR'};
+death_cutoff = -1e100; % values below this indicate death = -Inf
 for i = 1:2
     prog_col = prog_cols{i};
     switch prog_map
-        case 'orig' % mak
+        case 'orig'
             prog = round(data.(prog_col));
-            prog(prog < 1) = 1;
+            prog(death_cutoff < prog & prog < 1) = 1;
             prog(prog > 6) = 6;
-            prog = prog - 2;
-            prog_val = -1:4;
-            prog_names = {'Progressive Disease', 'Stable Disease', ...
-                'Partial Response', 'Very Good Partial Response (VGPR)', ...
-                'Complete Response', 'Stringent Complete Response (sCR)'}; % too long for yticks
-            prog_names = {'Progressive', 'Stable', ...
-                'Partial Resp', 'VGPR', ...
-                'CR', 'sCR'};
-        case 'orig-centered'
+            prog(prog < death_cutoff) = 0;
+            prog = prog - 2; % stable disease = 2, shift to 0
+            prog_val = -2:4;
+%             prog_names = {'Died', 'Progressive Disease', 'Stable Disease', ...
+%                 'Partial Response', 'Very Good Partial Response (VGPR)', ...
+%                 'Complete Response', 'Stringent Complete Response (sCR)'}; % too long for yticks
+            prog_names = {'Died', 'Progressive', 'Stable', ...
+                'Partial Resp', 'VGPR', 'CR', 'sCR'};
+        case 'orig-centered' % progressive disease is extra bad (tunable)
+            % sCR = 4, neutral = 0, progressive = -2, death = -4
             prog = round(data.(prog_col));
-            prog(prog < 1) = -1;
+            prog(death_cutoff < prog & prog < 1) = 1;
             prog(prog > 6) = 6;
             prog = prog - 2; % stable disease = 2, shift to 0
-            prog(prog < 0) = -3; % extra weight to progressive disease, tunable
-        case 'simple'
+            prog(death_cutoff < prog & prog < 0) = -2;
+            prog(prog < death_cutoff) = -4;
+            prog_val = [-4, -2, 0:4];
+            prog_names = {'Died', 'Progressive', 'Stable', ...
+                'Partial Resp', 'VGPR', 'CR', 'sCR'};
+        case 'simple' % maybe have a separate death state?
             prog = round(data.(prog_col));
             prog(prog < 2) = -1;
             prog(prog == 2) = 0;
             prog(prog > 2) = 1; % this is same to ordering of overwriting ops
+            prog_val = -1:1;
+            prog_names = {'Worse', 'Stable', 'Improved'};
     end
     data.(prog_col) = prog;
 end
@@ -81,7 +90,9 @@ data = join(data, treat, 'Keys', 'PUBLIC_ID'); % datapoint present for everyone
 
 %% Display some patient profiles
 % Collect data
-patient = 'MMRF_1011';
+% patient = 'MMRF_1007'; % died due to MM
+% patient = 'MMRF_1041'; % relapse - multiple episodes
+patient = 'MMRF_1011'; % doing well
 patient_rows = strcmp(patient, data.PUBLIC_ID);
 x = data(patient_rows,:);
 x_present = present(patient_rows,:);
@@ -89,6 +100,7 @@ start = min(x.INTERVAL);
 stop = max(x.INTERVAL);
 intervals = x.INTERVAL;
 
+% Lab measurements
 lab_cols = {'D_LAB_cbc_abs_neut', 'D_LAB_chem_albumin', 'D_LAB_chem_bun', ...
     'D_LAB_chem_calcium', 'D_LAB_chem_creatinine', 'D_LAB_chem_glucose', ...
     'D_LAB_cbc_hemoglobin', 'D_LAB_chem_ldh', ...
@@ -99,6 +111,7 @@ lab_vals_present = table2array(x_present(:,lab_cols));
 lab_vals_marks = lab_vals;
 lab_vals_marks(~lab_vals_present) = NaN;
 
+% Multiple myeloma lab measurements
 mm_lab_cols = {'D_LAB_serum_kappa', 'D_LAB_serum_m_protein', 'D_LAB_serum_iga', ...
     'D_LAB_serum_igg', 'D_LAB_serum_igm', 'D_LAB_serum_lambda'};
 mm_lab_names = cellfun(@(x) x(7:end), mm_lab_cols, 'UniformOutput', false);
@@ -107,6 +120,7 @@ mm_lab_vals_present = table2array(x_present(:,mm_lab_cols));
 mm_lab_vals_marks = mm_lab_vals;
 mm_lab_vals_marks(~mm_lab_vals_present) = NaN;
 
+% Treatments
 treatment_cols = {'Bortezomib', 'Carfilzomib', 'Cyclophosphamide', 'Dexamethasone', ...
     'Lenalidomide', 'Melphalan', 'Other'};
 n_treatments = length(treatment_cols);
@@ -125,8 +139,8 @@ for i = 1:n_treatments
     tr{i} = tri;
 end
 
+% Progression
 prog = x.PROGRESSION;
-
 
 % Make plots
 % Subplots 1,2, and 3 are offset by half to indicate middle of interval
@@ -181,6 +195,7 @@ ax = gca;
 plot(intervals - 0.5, prog, '+-')
 set(gca, 'YTick', prog_val)
 set(gca, 'YTickLabel', prog_names)
+xlim([start - 1, stop + 1])
 ylim([min(prog_val) - 1, max(prog_val)+1])
 ylabel('Progression')
 xlabel('Time Interval (90 days each)')

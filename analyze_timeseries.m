@@ -3,13 +3,16 @@
 % Setup: fill in missing time data, break into 3 month chunks for analysis
 % Save current TREATMENTRESP as PROGRESSION_CURR - this is a feature that
 %   indicates current severity
+% Assesses death as a possible progression
+%   TODO: Separate MM-caused and non-MM (another form of right censoring) death
+%       But this can be hard to judge
 clear; close all; clc
 rng('default');
 
 % Switches for expensive steps
 interval_avg = 1;
 impute = 1;
-add_deltas = 2;
+add_deltas = 1;
 assemble_pred_prob = 2;
 
 interval_avg_file = 'data/processed/timeseries_interval_avg.mat';
@@ -59,6 +62,13 @@ for i = 1:n_drop_cols
     end
 end
 
+% Prep survival data
+endp = sortrows(endp, 'PUBLIC_ID');
+died = endp{:,'D_PT_deathdy'};
+last_observed = max(died, endp{:,'D_PT_lstalive'});
+censored = isnan(died); % 1 = censored, 0 = death observed
+survival = table(endp.PUBLIC_ID, last_observed, censored, 'VariableNames', {'PUBLIC_ID','LAST_OBSERVED','CENSORED'});
+
 %% Combine and process data
 % - Each patient has a set of unchanging features ("demographic data")
 % - Each patient has changing features ("lab data") at irregular intervals
@@ -89,6 +99,7 @@ time_data.TREATMENTRESP = time_endp.AT_TREATMENTRESP;
 %   VISITDY <= 0 assigned to interval 0
 %   Interval = 90 is the 1st measurement after baseline, encompassing the
 %       last 90 days
+% Also convert last observed day to last observed interval
 intervals = treat.intervals;
 % Drop VISIT col
 time_data.VISIT = [];
@@ -99,17 +110,29 @@ time_data(isnan(time_data.VISITDY),:) = [];
 interval_lo = intervals(1:end-1);
 interval_hi = intervals(2:end);
 ni = length(interval_lo);
+
 v = time_data.VISITDY;
 nv = length(v);
 x = zeros(nv,1); % baseline (v <= 0 implicitly given interval 0)
+
+last_obs = survival.LAST_OBSERVED;
+nobs = length(last_obs);
+y = zeros(nobs,1);
+
 for i = 1:ni
     lo = interval_lo(i);
     hi = interval_hi(i);
+    
     in = lo < v & v <= hi;
     x(in) = i;
+    
+    in = lo < last_obs & last_obs <= hi;
+    y(in) = i;
 end
 time_data.VISITDY = [];
 time_data.INTERVAL = x;
+
+survival.LAST_OBS_INTERVAL = y;
 
 %% Average all values for the same patient, same interval, ignoring NaNs
 %   (except when all values are NaN/missing)
@@ -291,6 +314,7 @@ switch assemble_pred_prob
         % Placeholder for progressions
         t_data.PROGRESSION = nan(nr,1);
         t_data.PROGRESSION_CURR = nan(nr,1); % this is just TREATMENTRESP
+        t_data.DIED = zeros(nr,1); % whether the patient died (1) in this interval or not (0)
         
         % Modify t_data so that each row is an observation, where
         %   - the last col PROGRESSION is the output
@@ -311,15 +335,31 @@ switch assemble_pred_prob
             % Get progression at current interval (e.g., 0, 1)
             t_data{ir,'PROGRESSION_CURR'} = t_data{ir,'TREATMENTRESP'};
             
+            % Get death status at this interval
+            survival_ind = find(strcmp(survival.PUBLIC_ID, patient));
+            patient_last_interval = survival{survival_ind,'LAST_OBS_INTERVAL'};
+            patient_censored = survival{survival_ind,'CENSORED'};
+            death_status = false;
+            if interval == patient_last_interval && patient_censored == 0
+                t_data{ir,'DIED'} = 1;
+                death_status = true;
+            end
+            
             % Get progression at next interval (e.g., 1, 2)
             next_interval = interval + 1;
             row = find(strcmp(t_data.PUBLIC_ID, patient) & t_data.INTERVAL == next_interval);
-            if isempty(row) % Skip if result is unknown - this row will be dropped shortly
-                continue
+            if isempty(row) % Next result is unknown
+                if death_status % Unknown because died
+                    prog = -Inf; % should be unique to denote very bad
+                else % Unknown because missing
+                    continue
+                end
+            else % Next result is known
+                prog = t_data{row,'TREATMENTRESP'};
             end
-            t_data{ir,'PROGRESSION'} = t_data{row,'TREATMENTRESP'};
+            t_data{ir,'PROGRESSION'} = prog;
         end
-        t_data.TREATMENTRESP = [];
+        t_data.TREATMENTRESP = []; % Remove missing cols
         
         % Drop rows where there's no output - these can't be predicted
         drop_rows = isnan(t_data.PROGRESSION);
