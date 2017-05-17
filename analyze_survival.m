@@ -13,8 +13,8 @@ data_orig = data;
 
 % plot_overall_survival(data)
 
-export_file = 'data/processed/baseline_data_all.csv';
-export_data(data, export_file);
+% export_file = 'data/processed/baseline_data_all.csv';
+% export_data(data, export_file);
 
 % cox_reg(data);
 
@@ -604,6 +604,22 @@ n = 1;
 n_day = n * 365;
 dead = last_observed < n_day & ~censored; % not censored means death recorded
 keep = (last_observed >= n_day) | dead; % patients who don't have the full measurement timeframe are only kept if dead
+
+% Disgnostic plot of how many patients are eligible for analysis
+% nn = 500;
+% ns = linspace(1, 1400, nn); % day
+% elig = zeros(nn,1);
+% for in = 1:nn
+%     n = ns(in);
+%     dead = last_observed < n & ~censored;
+%     keep = (last_observed >= n) | dead; 
+%     elig(in) = sum(keep);
+% end
+% figure
+% plot(ns/365, elig, 'LineWidth', 2)
+% xlabel('Time (yr)')
+% ylabel('Patients')
+% title(sprintf('Number of Available Survived + Dead Patients in Study\n(i.e., how many observations for classifiers)'))
 
 % true/false output
 y = dead;
