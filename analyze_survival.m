@@ -13,16 +13,16 @@ data_orig = data;
 
 % plot_overall_survival(data)
 
-% export_file = 'data/processed/baseline_data_all.csv';
-% export_data(data, export_file);
+export_file = 'data/processed/baseline_data_all.csv';
+export_data(data, export_file);
 
 % cox_reg(data);
 
 % cox_reg_weighted(data);
 
-plot_feature_results(data_orig, 'D_IM_FLOWCYT_PCT_PC_IN_BM_LOW')
+% plot_feature_results(data_orig, 'D_IM_FLOWCYT_PCT_PC_IN_BM_LOW')
 
-% log_reg(data)
+log_reg(data)
 
 end
 
@@ -247,6 +247,25 @@ for i = 1:n_data_col
     col_bounds(:,i) = [col_min, col_max];
     data{:,i} = (x - col_min) / (col_max - col_min);
 end
+
+% Another filter to toss cols that ended up being all the same or are
+%   otherwise invalid
+drop_cols = false(1,n_data_col);
+for i = 1:n_data_col
+    x = data{:,i};
+    if any(isnan(x))
+        drop_cols(i) = true;
+    end
+    n = length(unique(x));
+    if n == 1
+        drop_cols(i) = true;
+    end
+end
+drop_cols = find(drop_cols);
+for col = drop_cols
+    fprintf('Dropping col %s because all vals are the same or invalid vals found\n', col_names{col})
+end
+data(:,drop_cols) = [];
 
 % Rejoin with metadata cols
 data(:,meta_cols) = meta;
@@ -578,9 +597,7 @@ function log_reg(data)
 %       as Cox
 %   1-yr is hard because there's less dead than features; later yrs are even
 %       harder because the vast majority are censored (study hasn't gone on long enough)
-[X, last_observed, censored] = data_to_mat(data);
-col_names = data.Properties.VariableNames;
-tot = size(X,1);
+[X, last_observed, censored, col_names] = data_to_mat(data);
 
 % Convert last_observed and censored results into n-th yr survival
 n = 1;
@@ -588,8 +605,7 @@ n_day = n * 365;
 dead = last_observed < n_day & ~censored; % not censored means death recorded
 keep = (last_observed >= n_day) | dead; % patients who don't have the full measurement timeframe are only kept if dead
 
-
-% stepwiseglm uses true/false
+% true/false output
 y = dead;
 
 % Toss patients who we don't know the result (last observed < nday & censored)
@@ -597,47 +613,27 @@ y = dead;
 X = X(keep,:);
 y = y(keep);
 
-% Diagnostic histogram of each category
-% figure
-% bar([sum(y==1), sum(y==2), tot-numel(y)])
-% set(gca, 'XTick', 1:3, 'XTickLabel', {'Alive', 'Dead', 'Censored'});
-% ylabel('Count')
-% title(sprintf('Counts of Patients Alive at %2.1f yr', n))
-
-% Preprocess data matrix: throw away enough cols to make matrix useful
-%   https://www.mathworks.com/help/stats/examples/selecting-features-for-classifying-high-dimensional-data.html
-% Calc the p-val of a t-test for each feature independently and take the sig
-%   ones (by rank)
-n_cols = size(X,2);
-ps = zeros(1,n_cols);
-for i = 1:n_cols
-    x_dead = X(y,i);
-    x_alive = X(~y,i);
-    [h, p, ci, stat] = ttest2(x_dead, x_alive, 'Vartype', 'unequal');
-    ps(i) = p;
-    
-    % Sample hist of 2 groups
-    %   If the groups are very different in size, may use overlaid KDEs
-%     figure
-%     edges = linspace(min(X(:,i)), max(X(:,i)), 20);
-%     histogram(x_dead, edges)
-%     hold on
-%     histogram(x_alive, edges)
-%     hold off
-%     legend({'Dead','Alive'}, 'Location', 'best')
-end
-[p_sort, p_sort_ind] = sort(ps);
-p_thres = 0.25; % this is rough
-p_keep = p_sort <= p_thres;
-p_sort_ind = p_sort_ind(p_keep);
-ps = p_sort(p_keep);
-
-X = X(:,p_sort_ind);
-col_names = col_names(p_sort_ind);
-n_cols = length(col_names);
+% Split train/test
+train = logical(data.TRAIN_SET);
+train = train(keep);
+X_train = X(train,:);
+y_train = y(train);
+X_test = X(~train,:);
+y_test = y(~train);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Regular logistic regression
+% L1-regularized logistic regression (binomial defaults to logit link)
+opts = statset('UseParallel', true);
+[B, FitInfo] = lassoglm(X_train, y_train, 'binomial', 'NumLambda', 10, 'CV', 5, 'PredictorNames', col_names, 'Options', opts);
+
+lassoPlot(B, FitInfo, 'PlotType', 'CV');
+
+lassoPlot(B, FitInfo, 'PlotType', 'Lambda', 'XScale', 'log');
+
+1
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Logistic regression
 % mnrfit needs integers of 1:k
 y_ = zeros(size(y));
 y_(y) = 1; % dead
