@@ -5,9 +5,10 @@ library(readr)
 library(survival)
 library(survcomp)
 
-# Load and prep data
+# Load data
 X <- read_csv("data/processed/baseline_data_all.csv")
 
+# Prep data - delete extraneous cols, convert outputs to time and event
 id <- X$PUBLIC_ID
 X$PUBLIC_ID <- NULL
 
@@ -32,12 +33,7 @@ X$D_TRI_CF_TRISOMIES21 <- NULL
 
 # Train/test split
 X_train = X[train,]
-# y_train = last_obs[train]
-# d_train = dead[train]
-
 X_test = X[!train,]
-# y_test = last_obs[!train]
-# d_test = dead[!train]
 
 # Do Cox proportional hazards regression on training set
 fit <- coxph(Surv(time, event) ~ ., data = X_train)
