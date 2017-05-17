@@ -6,68 +6,122 @@ function analyze_survival
 clear; close all; clc
 rng('default');
 
-[data, endp, treat] = load_data();
-data_orig = data;
+data = load_data();
 
 [data, outlier_bounds, col_bounds] = preprocess_data(data);
+data_orig = data;
 
-plot_overall_survival(data, endp)
+% plot_overall_survival(data)
 
-% cox_reg(data, endp)
-% plot_feature_results(data_orig, endp, 'D_IM_igl')
+export_file = 'data/processed/baseline_data_all.csv';
+export_data(data, export_file);
 
-log_reg(data, endp)
+cox_reg(data)
+
+% plot_feature_results(data_orig, 'D_IM_FLOWCYT_PCT_PC_IN_BM_HIGH')
+
+% log_reg(data)
 
 
-end
-
-function [X, last_observed, censored] = data_to_mat(data, endp)
-% Turn data into matrices for regression
-X = table2array(data);
-died = endp{:,'D_PT_deathdy'};
-last_observed = max(died, endp{:,'D_PT_lstalive'});
-censored = isnan(died); % 1 = censored, 0 = death observed
 end
 
 function [data, endp, treat] = load_data()
-baseline_clinical_data_file = 'data/processed/baseline_clinical_data_imputed_knn.csv';
-endpoints_file = 'data/processed/baseline_clinical_endp.csv';
+% Load the various baseline datasets (clinical, rnaseq, mutation), basic
+%   treatments, endpoints, and train/test split
+use_muts = false;
+use_sig_genes = false;
+% use_muts = true;
+% use_sig_genes = true;
+
+baseline_clinical_data_file = 'data/processed/imputed_updated_May_15.csv';
+muts_file = 'data/processed/ns_mut_baseline_features.mat';
+sig_gene_file = 'data/processed/rnaseq_cufflinks_fpkm_baseline_sig_gene_expr.mat';
+endpoints_file = 'data/processed/patient_endp.csv';
 treatments_file = 'data/processed/patient_treat.csv';
+test_train_split_file = 'data/processed/test_train_split.mat';
 
-% M = csvread(baseline_clinical_data_file, 1, 1); % skip 1st row (col headers) and 1st col: Patient IDs
+%% Load main baseline clinical data file
 data = readtable(baseline_clinical_data_file);
+data.Var1 = []; % drop extraneous 1st col
+
+%% Load NS mutations subset
+if use_muts
+    loaded = load(muts_file);
+    muts = array2table(loaded.X, 'VariableNames', loaded.genes);
+    muts.PUBLIC_ID = loaded.patients;
+    % Not all patients have this, so remove missing patients - yeah, left join
+    %   doesn't automatically fill in with NaNs
+    keep = ismember(data.PUBLIC_ID, muts.PUBLIC_ID);
+    data = data(keep,:);
+    data = join(data, muts, 'Keys', 'PUBLIC_ID');
+end
+
+%% Load significantly expressed genes
+if use_sig_genes
+    loaded = load(sig_gene_file);
+    % Filter by q-val again - strict to keep non-regularized regression tractable
+    q_cutoff = 0.005;
+    keep = loaded.qs < q_cutoff;
+    ids = loaded.gene_ids(keep);
+    nids = length(ids);
+    expr = loaded.T(:,'PUBLIC_ID');
+    for i = 1:nids
+        id = [ids{i} '_expr'];
+        expr.(id) = loaded.T.(id);
+    end
+    % Not all patients have this, so remove missing patients
+    keep = ismember(data.PUBLIC_ID, expr.PUBLIC_ID);
+    data = data(keep,:);
+    data = join(data, expr, 'Keys', 'PUBLIC_ID');
+end
+
+%% Load endpoints
 endp = readtable(endpoints_file);
+endp = sortrows(endp, 'PUBLIC_ID');
+died = endp{:,'D_PT_deathdy'};
+last_observed = max(died, endp{:,'D_PT_lstalive'}); % main output
+censored = isnan(died); % 1 = censored, 0 = death observed
+survival = table(endp.PUBLIC_ID, last_observed, censored, 'VariableNames', {'PUBLIC_ID','LAST_OBSERVED','CENSORED'});
+data = join(data, survival, 'Keys', 'PUBLIC_ID');
+
+%% Load basic treatments
+% 3 coarse-grained 1st line therapies + 1st line SCT
 treat = readtable(treatments_file);
-n_data_col = width(data) - 1; % minus the PUBLIC_ID col
-n_endp_col = width(endp) - 1;
+treats = table(treat.PUBLIC_ID, treat.TREAT_BOR, treat.TREAT_CAR, treat.TREAT_IMI, treat.line1sct, 'VariableNames', {'PUBLIC_ID','TREAT_BOR','TREAT_CAR','TREAT_IMI','TREAT_SCT'});
+data = join(data, treats, 'Keys', 'PUBLIC_ID');
 
-% Join data by common col PUBLIC_ID and resplit to ensure consistency
-all_data = join(data, endp);
-all_data = join(all_data, treat);
-all_data.Properties.RowNames = data{:,'PUBLIC_ID'};
-all_data.('PUBLIC_ID') = [];
+%% Load train/test split
+loaded = load(test_train_split_file);
+train = zeros(length(loaded.patients),1);
+train(loaded.train_inds) = 1;
+ttsplit = table(loaded.patients, train, 'VariableNames', {'PUBLIC_ID','TRAIN_SET'});
+data = join(data, ttsplit, 'Keys', 'PUBLIC_ID');
+end
 
-data = all_data(:,1:n_data_col);
-endp = all_data(:,n_data_col+1:n_data_col+n_endp_col);
-treat = all_data(:,n_data_col+n_endp_col+1:end);
-
-% Keep treatments as data covariates
-data = join(data, treat, 'Keys', 'RowNames');
+function export_data(data, export_file)
+% Export entire processed baseline dataset for analysis in other software
+writetable(data, export_file);
 end
 
 function [data, outlier_bounds, col_bounds] = preprocess_data(data)
 col_names = data.Properties.VariableNames;
 
+%% First pull out significant cols that aren't features
+meta_cols = {'PUBLIC_ID', 'LAST_OBSERVED', 'CENSORED', 'TRAIN_SET'};
+meta = data(:,meta_cols);
+data(:,meta_cols) = [];
+
 %% Drop some not-so-good cols
+% Note: Most of these cols should have been dropped by Ege in the imputation code
 % Note/TODO: Lots of cols have overwhelming majority of patients of 1 class, a few (~dozen or less) of the other class
 drop_cols_names = {'CMMC_REASONFORPROC', 'CMMC_REASONCODE', 'CMMC_RECDY', 'CMMC'}; % Lots of data missing - these may be dropped by Ege so check if they're present first
 drop_cols_names = [drop_cols_names, {'D_CM_ANEUPLOIDYCAT', 'D_IM_CD38_PC_PERCENT', 'D_IM_CD138_PC_PERCENT', 'D_IM_CD45_PC_PERCENT', 'D_IM_CD56_PC_PERCENT', 'D_IM_CD117_PC_PERCENT'}]; % Slightly weird and not-as-informative D_IM_CD*_PERCENT measurements
 drop_cols_names = [drop_cols_names, {'D_IM_CD138_DETECTED'}]; % everyone except 1 person has ~the same val; causes matrix to be ~singular
 drop_cols_names = [drop_cols_names, {'D_IM_CD38_DETECTED', 'D_IM_CD45_PC_TYPICAL_DETECTED', 'D_IM_CD56_DETECTED', 'D_IM_CD13_DETECTED', 'D_IM_CD20_DETECTED', 'D_IM_CD33_DETECTED', 'D_IM_CD52_DETECTED', 'D_IM_CD117_DETECTED'}]; % similar to above
-drop_cols_names = [drop_cols_names, {'sct_bresp'}]; % less treatment treatment col
-for col = drop_cols_names;
+n_drop_cols = length(drop_cols_names);
+for id = 1:n_drop_cols;
+    col = drop_cols_names{id};
     if ismember(col, col_names)
-        col_name = col{1};
         fprintf('Dropping col %s because of some reason\n', col_name)
         data.(col_name) = [];
     end
@@ -103,15 +157,34 @@ for col = redundant_cols
 end
 data(:,redundant_cols) = [];
 n_data_col = width(data);
+col_names = data.Properties.VariableNames;
+
+% Take the log of all the lab results
+% May give -Inf for 0 vals. These will be ignored and tossed in the next step
+%   after conversion to NaN and then thresholded to the min val.
+lab_inds = find(strncmp(col_names, 'D_LAB_', 6));
+n_lab = length(lab_inds);
+for il = 1:n_lab
+    col = col_names{lab_inds(il)};
+    x = data.(col);
+    x(x < 0) = 0; % fix negative vals - none should be negative in regular space
+    x = log10(x);
+%     x(isinf(x)) = NaN;
+    data.(col) = x;
+end
 
 % Toss outliers - anything beyond n std devs +/- set to n std dev
+% Only calculate mean+std on training data
+train = logical(meta.TRAIN_SET);
 n_dev = 3;
 n_outliers = zeros(1,n_data_col);
 outlier_bounds = zeros(2,n_data_col);
 for i = 1:n_data_col
     x = data{:,i};
-    col_mean = mean(x);
-    col_std = std(x);
+    x_ = x(train);
+    x_(isinf(x_)) = [];
+    col_mean = mean(x_);
+    col_std = std(x_);
     lo_lim = col_mean - n_dev*col_std;
     hi_lim = col_mean + n_dev*col_std;
     lo = x < lo_lim;
@@ -121,41 +194,81 @@ for i = 1:n_data_col
     n_outliers(i) = sum(lo) + sum(hi);
     outlier_bounds(:,i) = [lo_lim, hi_lim];
     data{:,i} = x;
+    
+    % Sanity checks - dataset must be complete and well-behaved
+    assert(~any(isinf(x)))
+    assert(~any(isnan(x)))
 end
 
 % Standardize all cols to between [0,1]
+% Only calculate min+max on training data
 col_bounds = zeros(2,n_data_col);
 for i = 1:n_data_col
     x = data{:,i};
-    col_min = min(x);
-    col_max = max(x);
+    col_min = min(x(train));
+    col_max = max(x(train));
     col_bounds(:,i) = [col_min, col_max];
     data{:,i} = (x - col_min) / (col_max - col_min);
 end
 
-
+% Rejoin with metadata cols
+data(:,meta_cols) = meta;
 end
 
-function plot_overall_survival(data, endp)
+function [X, last_observed, censored, col_names] = data_to_mat(data)
+% Turn data into matrices for regression and easy plotting
+last_observed = data.LAST_OBSERVED;
+censored = data.CENSORED;
+meta_cols = {'PUBLIC_ID', 'LAST_OBSERVED', 'CENSORED', 'TRAIN_SET'};
+data(:,meta_cols) = [];
+X = table2array(data);
+col_names = data.Properties.VariableNames;
+end
+
+function plot_overall_survival(data)
 % Sanity check - some overall survival plots
-[~, last_observed, censored] = data_to_mat(data, endp);
+[~, last_observed, censored] = data_to_mat(data);
+
+[f, x, lo, hi] = ecdf(last_observed, 'censoring', censored, 'function', 'survivor');
 
 figure
-ecdf(last_observed, 'censoring', censored, 'function', 'survivor');
+h = stairs(x, f);
+hold on
+c = get(h, 'Color');
+stairs(x, lo, ':', 'Color', c);
+stairs(x, hi, ':', 'Color', c);
+hold off
+xlabel('Time (days)')
+ylabel('Survival')
 title('Overall Survival')
-
 end
 
-function cox_reg(data, endp)
+function cox_reg(data)
+run_fit = true; % the fit is expensive so cache it during development
+fit_cache_file = 'data/processed/coxph_fit_cache.mat';
+
 % Cox proportional hazards regression on main feature matrix data
-[X, last_observed, censored] = data_to_mat(data, endp);
-col_names = data.Properties.VariableNames;
+[X, last_observed, censored, col_names] = data_to_mat(data);
+train = logical(data.TRAIN_SET);
+
+X_train = X(train,:);
+y_train = last_observed(train);
+c_train = censored(train);
+
+X_test = X(~train,:);
+y_test = last_observed(~train);
+c_test = censored(~train);
 
 coxphopt = statset('coxphfit');
 coxphopt.Display = 'iter'; % doesn't work?
 coxphopt.MaxIter = 100; % default
 
-[b, logL, H, stats] = coxphfit(X, last_observed, 'Censoring', censored, 'Options', coxphopt);
+if run_fit
+    [b, logL, H, stats] = coxphfit(X_train, y_train, 'Censoring', c_train, 'Options', coxphopt);
+    save(fit_cache_file, 'b', 'logL', 'H', 'stats');
+else
+    load(fit_cache_file);
+end
 pvals = stats.p;
 % positive value of beta means hi val = more hazard
 % Harder to converge optimization w/ all features
@@ -180,14 +293,14 @@ for i = 1:n_show
 end
 end
 
-function plot_feature_results(data, endp, feature)
+function plot_feature_results(data, feature)
 %% Look at differential survival due to some predictors
 % Find 1st important significant feature where more than 50 people are in
 %   each group - prevents 1 good/bad person from biasing it too much
 % Note: D_LAB_chem_creatinine and D_CM_OTHER give the wrong trend? Is this
 %   just what happens when you fit the full model (and you take into account everything else)?
 %   TODO: Validate w/ logistic regression - survival at 1 yr
-[~, last_observed, censored] = data_to_mat(data, endp);
+[~, last_observed, censored] = data_to_mat(data);
 
 col = feature;
 hi = max(data{:,col});
@@ -259,14 +372,14 @@ set(th, 'Interpreter', 'none')
 fprintf('Individual feature %s beta: %8.3f\n', col, b)
 end
 
-function log_reg(data, endp)
+function log_reg(data)
 % Logistic regression for comparison
 %   No censoring - throw out patients whose results are unknown (censored before n-th yr)
 %   Use death = 1, live = 0 so sign of coefficients have the same interpretation
 %       as Cox
 %   1-yr is hard because there's less dead than features; later yrs are even
 %       harder because the vast majority are censored (study hasn't gone on long enough)
-[X, last_observed, censored] = data_to_mat(data, endp);
+[X, last_observed, censored] = data_to_mat(data);
 col_names = data.Properties.VariableNames;
 tot = size(X,1);
 
