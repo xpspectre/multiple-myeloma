@@ -3,8 +3,9 @@ clear; close all; clc
 rng('default'); % for consistency
 
 assembled_pred_prob_file = 'data/processed/timeseries_assembled_pred_prob.mat';
-baseline_file = 'data/processed/imputed_h_and_w_update.csv';
+baseline_file = 'data/processed/imputed_updated_May_15.csv';
 treatments_file = 'data/processed/patient_treat.csv'; % baseline treatments includes SCT
+tt_split_file = 'data/processed/test_train_split.mat';
 
 % Progression mapping strategy
 % prog_map = 'orig'; % original progressive disease = 1, sCR = 6
@@ -13,7 +14,8 @@ prog_map = 'orig-centered'; % original, but stable disease = 0, positive outcome
 
 % Test-validate-train split
 % tt_split = 'by-obs';
-tt_split = 'by-patient'; % fairer than obs?
+% tt_split = 'by-patient'; % fairer than obs?
+tt_split = 'from-file';
 
 % Load timeseries data
 loaded = load(assembled_pred_prob_file);
@@ -144,64 +146,64 @@ prog = x.PROGRESSION;
 
 % Make plots
 % Subplots 1,2, and 3 are offset by half to indicate middle of interval
-figure('Position', [300,300,900,900])
-subplot(4,1,1)
-plot(intervals - 0.5, log10(lab_vals))
-hold on
-ax = gca;
-ax.ColorOrderIndex = 1;
-plot(intervals - 0.5, log10(lab_vals_marks), '+')
-hold off
-xlim([start - 1, stop + 1])
-ylabel('log_{10} Value')
-legend(lab_names, 'Location', 'east', 'Interpreter', 'none')
-legend('boxoff')
-title('General Lab Measurements')
-
-subplot(4,1,2)
-plot(intervals - 0.5, log10(mm_lab_vals))
-hold on
-ax = gca;
-ax.ColorOrderIndex = 1;
-plot(intervals - 0.5, log10(mm_lab_vals_marks), '+')
-hold off
-xlim([start - 1, stop + 1])
-ylabel('log_{10} Value')
-legend(mm_lab_names, 'Location', 'east', 'Interpreter', 'none')
-legend('boxoff')
-title('Multiple Myeloma Lab Measurements')
-
-subplot(4,1,3)
-hold on
-ax = gca;
-for i = 1:n_treatments
-    tri = tr{i};
-    n_tri_inds = size(tri,1);
-    for j = 1:n_tri_inds
-        ax.ColorOrderIndex = i;
-        trij = tri(j,:);
-        plot(trij(1:2), trij(3:4))
-    end
-end
-hold off
-set(gca, 'YTick', 1:n_treatments)
-set(gca, 'YTickLabel', treatment_cols)
-xlim([start - 1, stop + 1])
-ylim([0, n_treatments+1])
-title('Treatments')
-
-subplot(4,1,4)
-ax = gca;
-plot(intervals - 0.5, prog, '+-')
-set(gca, 'YTick', prog_val)
-set(gca, 'YTickLabel', prog_names)
-xlim([start - 1, stop + 1])
-ylim([min(prog_val) - 1, max(prog_val)+1])
-ylabel('Progression')
-xlabel('Time Interval (90 days each)')
-title('Disease Progression')
-h = suptitle(sprintf('Patient %s Profile', patient));
-set(h, 'Interpreter', 'none');
+% figure('Position', [300,300,900,900])
+% subplot(4,1,1)
+% plot(intervals - 0.5, log10(lab_vals))
+% hold on
+% ax = gca;
+% ax.ColorOrderIndex = 1;
+% plot(intervals - 0.5, log10(lab_vals_marks), '+')
+% hold off
+% xlim([start - 1, stop + 1])
+% ylabel('log_{10} Value')
+% legend(lab_names, 'Location', 'east', 'Interpreter', 'none')
+% legend('boxoff')
+% title('General Lab Measurements')
+% 
+% subplot(4,1,2)
+% plot(intervals - 0.5, log10(mm_lab_vals))
+% hold on
+% ax = gca;
+% ax.ColorOrderIndex = 1;
+% plot(intervals - 0.5, log10(mm_lab_vals_marks), '+')
+% hold off
+% xlim([start - 1, stop + 1])
+% ylabel('log_{10} Value')
+% legend(mm_lab_names, 'Location', 'east', 'Interpreter', 'none')
+% legend('boxoff')
+% title('Multiple Myeloma Lab Measurements')
+% 
+% subplot(4,1,3)
+% hold on
+% ax = gca;
+% for i = 1:n_treatments
+%     tri = tr{i};
+%     n_tri_inds = size(tri,1);
+%     for j = 1:n_tri_inds
+%         ax.ColorOrderIndex = i;
+%         trij = tri(j,:);
+%         plot(trij(1:2), trij(3:4))
+%     end
+% end
+% hold off
+% set(gca, 'YTick', 1:n_treatments)
+% set(gca, 'YTickLabel', treatment_cols)
+% xlim([start - 1, stop + 1])
+% ylim([0, n_treatments+1])
+% title('Treatments')
+% 
+% subplot(4,1,4)
+% ax = gca;
+% plot(intervals - 0.5, prog, '+-')
+% set(gca, 'YTick', prog_val)
+% set(gca, 'YTickLabel', prog_names)
+% xlim([start - 1, stop + 1])
+% ylim([min(prog_val) - 1, max(prog_val)+1])
+% ylabel('Progression')
+% xlabel('Time Interval (90 days each)')
+% title('Disease Progression')
+% h = suptitle(sprintf('Patient %s Profile', patient));
+% set(h, 'Interpreter', 'none');
 
 %% Preprocess data for regression
 % Note/TODO: It's fairer to do the preprocessing on the
@@ -217,7 +219,7 @@ data(:,hold_out_cols) = [];
 drop_cols = {'AT_INCREASEOF25F', 'AT_SERUMMCOMPONE', 'AT_URINEMCOMPONE', ...
     'AT_ONLYINPATIENT', 'AT_ONLYINPATIENT2', 'AT_DEVELOPMENTOF'};
 drop_delta_cols = strcat('delta_', drop_cols);
-drop_cols = [drop_cols, drop_delta_cols, 'delta_SS_SYMPTOMATICHY']; % last one has issues
+drop_cols = [drop_cols, drop_delta_cols, 'delta_SS_SYMPTOMATICHY', 'DIED']; % last one has issues
 data(:,drop_cols) = [];
 
 % Throw out any cols that are constant - single val for all rows
@@ -285,6 +287,17 @@ data(:,hold_out_cols) = data_;
 
 %% Split test-train datasets
 switch tt_split
+    case 'from-file' % Same case as 'by-patient', but division is preordained
+        tt_split_loaded = load('data/processed/test_train_split.mat');
+        PUBLIC_ID = tt_split_loaded.patients;
+        n = length(PUBLIC_ID);
+        train_ind = tt_split_loaded.train_inds;
+        test_ind = tt_split_loaded.test_inds;
+        TTSET = zeros(n,1);
+        TTSET(train_ind) = 1;
+        TTSET(test_ind) = 3;
+        T = table(PUBLIC_ID, TTSET);
+        data = join(data, T, 'Keys', 'PUBLIC_ID');
     case 'by-obs'
         n = height(data);
         [train_ind, val_ind, test_ind] = dividerand(n, 0.7 ,0.1, 0.1); % [train, val, test]
@@ -313,12 +326,12 @@ drop_cols = {'PUBLIC_ID', 'TTSET'};
 X_train = data_train;
 X_train(:,drop_cols) = [];
 % X_train = table2array(X_train);
-% y_train = data_train.PROGRESSION;
+y_train = data_train.PROGRESSION;
 
 X_test = data_test;
 X_test(:,drop_cols) = [];
 % X_test = table2array(X_test);
-% y_test = data_test.PROGRESSION;
+y_test = data_test.PROGRESSION;
 
 col_names = data_train.Properties.VariableNames;
 % col_names = ['intercept', col_names];
@@ -341,7 +354,28 @@ mdl = fitglm(X_train, 'ResponseVar', 'PROGRESSION');
 
 % Display sorted significant params
 sortrows(mdl.Coefficients, 'pValue')
+mdl.Rsquared
 
+% Run logistic regression on the whether or not the progression is positive
+% Outputs AUROC and ROC for the classifier on the test set
+POS_PROGRESSION = data.PROGRESSION>0;
+logreg_X_train = X_train;
+logreg_X_train.PROGRESSION = [];
+logreg_X_train = table2array(logreg_X_train);
+logreg_X_test = X_test;
+logreg_X_test.PROGRESSION = [];
+logreg_X_test = table2array(logreg_X_test);
+logreg_y_train = POS_PROGRESSION(data.TTSET == 1);
+logreg_y_test = POS_PROGRESSION(data.TTSET == 3);
+glm = GeneralizedLinearModel.fit(logreg_X_train, logreg_y_train,'distr','binomial');
+[X,Y,T,AUC] = perfcurve(logreg_y_test, glm.predict(logreg_X_test), 1);
+disp('AUROC:');
+disp(AUC);
+figure();
+plot(X,Y);
+title('ROC for Logistic Regression over Positive/Negative MM Disease Progression');
+xlabel('False Positive Rate');
+ylabel('True Positive Rate');
 % pvals = stats.p;
 % pval_cutoff = 0.1;
 % keep = pvals <= pval_cutoff;
