@@ -353,12 +353,12 @@ mdl = fitglm(X_train, 'ResponseVar', 'PROGRESSION');
 
 
 % Display sorted significant params
-sortrows(mdl.Coefficients, 'pValue')
-mdl.Rsquared
+ssortrows(mdl.Coefficients, 'pValue')
+% mdl.Rsquared
 
 % Run logistic regression on the whether or not the progression is positive
 % Outputs AUROC and ROC for the classifier on the test set
-POS_PROGRESSION = data.PROGRESSION>0;
+POS_PROGRESSION = data.PROGRESSION<0;
 logreg_X_train = X_train;
 logreg_X_train.PROGRESSION = [];
 logreg_X_train = table2array(logreg_X_train);
@@ -370,6 +370,9 @@ logreg_y_test = POS_PROGRESSION(data.TTSET == 3);
 glm = GeneralizedLinearModel.fit(logreg_X_train, logreg_y_train,'distr','binomial');
 [rocXtrain, rocYtrain,rocTtrain,rocAUCtrain] = perfcurve(logreg_y_train, glm.predict(logreg_X_train), 1);
 [rocXtest,rocYtest,rocTtest,rocAUCtest] = perfcurve(logreg_y_test, glm.predict(logreg_X_test), 1);
+%sortrows(glm.Coefficients, 'pValue')
+%glm.Rsquared
+
 disp('AUROC:');
 disp(rocAUCtest);
 figure();
@@ -377,7 +380,7 @@ plot(rocXtest,rocYtest);
 hold on;
 plot(rocXtrain,rocYtrain);
 legend('Test', 'Train');
-title('ROC for Logistic Regression over Positive/Negative MM Disease Progression');
+title('ROC for Logistic Regression Predicting Worsening MM Disease Progression');
 xlabel('False Positive Rate');
 ylabel('True Positive Rate');
 % pvals = stats.p;
