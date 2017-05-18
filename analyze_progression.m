@@ -353,7 +353,7 @@ mdl = fitglm(X_train, 'ResponseVar', 'PROGRESSION');
 
 
 % Display sorted significant params
-ssortrows(mdl.Coefficients, 'pValue')
+sortrows(mdl.Coefficients, 'pValue')
 % mdl.Rsquared
 
 % Run logistic regression on the whether or not the progression is positive
@@ -375,7 +375,7 @@ glm = GeneralizedLinearModel.fit(logreg_X_train, logreg_y_train,'distr','binomia
 
 disp('AUROC:');
 disp(rocAUCtest);
-figure();
+figure
 plot(rocXtest,rocYtest);
 hold on;
 plot(rocXtrain,rocYtrain);
@@ -383,6 +383,7 @@ legend('Test', 'Train');
 title('ROC for Logistic Regression Predicting Worsening MM Disease Progression');
 xlabel('False Positive Rate');
 ylabel('True Positive Rate');
+save2pdf('progression_logreg', 1);
 % pvals = stats.p;
 % pval_cutoff = 0.1;
 % keep = pvals <= pval_cutoff;
