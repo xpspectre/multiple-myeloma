@@ -52,9 +52,9 @@ print("    Test accuracy: "+str(score_test))
 
 # Output fit params in order of importance
 coefs = reg.coef_.squeeze()
-coefs_sortinds = np.argsort(np.abs(coefs))
+coefs_sortinds = np.argsort(np.abs(coefs))[::-1]
 for i in coefs_sortinds:
-    print(col_names[i] + '\t' + str(coefs[i]))
+    print('{:.3f}\t{}'.format(coefs[i], col_names[i]))
 
 yhat_train = reg.decision_function(X_train)
 fpr_train, tpr_train, _ = roc_curve(y_train, yhat_train)

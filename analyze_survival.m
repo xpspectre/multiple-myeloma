@@ -11,18 +11,18 @@ data = load_data();
 [data, outlier_bounds, col_bounds] = preprocess_data(data);
 data_orig = data;
 
-% plot_overall_survival(data)
+plot_overall_survival(data)
 
-% export_file = 'data/processed/baseline_data_all.csv';
-% export_data(data, export_file);
+export_file = 'data/processed/baseline_data_all.csv';
+export_data(data, export_file);
 
-% cox_reg(data);
+cox_reg(data);
 
 % cox_reg_weighted(data);
 
 % plot_feature_results(data_orig, 'D_IM_FLOWCYT_PCT_PC_IN_BM_LOW')
 
-log_reg(data)
+% log_reg(data)
 
 end
 
@@ -130,6 +130,14 @@ train = zeros(length(loaded.patients),1);
 train(loaded.train_inds) = 1;
 ttsplit = table(loaded.patients, train, 'VariableNames', {'PUBLIC_ID','TRAIN_SET'});
 data = join(data, ttsplit, 'Keys', 'PUBLIC_ID');
+
+%% Fast and dirty export col names for paper
+% col_names = data.Properties.VariableNames;
+% n_cols = length(col_names);
+% for i = 1:n_cols
+%     fprintf(sprintf('%s\n', col_names{i}));
+% end
+
 end
 
 function export_data(data, export_file)
@@ -373,6 +381,13 @@ h = legend([h1, h2], {'SCT','No SCT'}, 'Location', 'southwest');
 title(h, sprintf('Hazard Ratio = %.3f', exp(b)));
 title('ISS-Reweighted Stem Cell Transplant Treatment Effect')
 
+%% % Get fraction of patients on therapies
+treats = data{:,{'TREAT_BOR','TREAT_CAR','TREAT_IMI','TREAT_SCT'}};
+ttreats = sum(treats,2);
+n_multi = sum(ttreats>1);
+f_multi = n_multi/length(ttreats);
+fprintf('%i (%.3f) patients on > 1 treatment\n', n_multi, f_multi);
+
 %% All drugs, ISS reweighting
 pop_bor = [sum(data.TREAT_BOR == 0), sum(data.TREAT_BOR == 1)]./np; % 0, 1
 pop_car = [sum(data.TREAT_CAR == 0), sum(data.TREAT_CAR == 1)]./np; % 0, 1 - very few get this
@@ -462,7 +477,7 @@ end
 
 
 function cox_reg(data)
-run_fit = true; % the fit is expensive so cache it during development
+run_fit = false; % the fit is expensive so cache it during development
 fit_cache_file = 'data/processed/coxph_fit_cache.mat';
 
 % Cox proportional hazards regression on main feature matrix data
@@ -507,7 +522,7 @@ fprintf('The %i most important significant features are:\n', n_show)
 fprintf('beta\t\tp-val\tName\n')
 for i = 1:n_show
     ind = sort_ind(i);
-    fprintf('%8.3f\t%5.4f\t%s\n', beta(ind), pvals(ind), col_names{ind})
+    fprintf('%8.3f\t%.3g\t%s\n', beta(ind), pvals(ind), col_names{ind})
 end
 end
 

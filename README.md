@@ -1,6 +1,10 @@
 # Multiple Myeloma Project
 
-Note: I used Python 3 for this.
+Tools used
+- Python 3.5
+- Matlab R2016a
+- R 3.4.0
+- GSEA 2.2.4
 
 ## Setup
 
@@ -8,10 +12,9 @@ Make a new Anaconda3 environment
 ```
 conda create -n mm-env python=3.5 numpy scipy matplotlib pandas msgpack-python scikit-learn pillow xlrd lifelines
 source activate mm-env
-pip install tensorflow msgpack-numpy fancyimpute
+pip install tensorflow msgpack-numpy
 ```
 
-Warning: `fancyimpute` has a lot of dependencies. So it's use has been suppressed for now. Use R's MICE package or similar to do imputation for now.
 
 Make a symlink in this directory to the data store
 ```
@@ -19,6 +22,14 @@ ln -s data <mm data dir>
 ```
 
 Inside the data store, the subdir `raw/clinical_data_tables/CoMMpass_IA9_FlatFile_Dictionaries` and `raw/clinical_data_tables/CoMMpass_IA9_FlatFiles` contains the unzipped data.
+
+Install R. Install necessary packages:
+```
+install.packages("mice")
+install.packages("survival")
+source("https://bioconductor.org/biocLite.R")
+biocLite("survcomp")
+```
 
 ## Baseline Data Prep
 
