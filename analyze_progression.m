@@ -373,16 +373,23 @@ glm = GeneralizedLinearModel.fit(logreg_X_train, logreg_y_train,'distr','binomia
 %sortrows(glm.Coefficients, 'pValue')
 %glm.Rsquared
 
+%%
 disp('AUROC:');
+disp(rocAUCtrain);
 disp(rocAUCtest);
 figure
-plot(rocXtest,rocYtest);
+plot(rocXtest, rocYtest, 'LineWidth', 2);
 hold on;
-plot(rocXtrain,rocYtrain);
-legend('Test', 'Train');
-title('ROC for Logistic Regression Predicting Worsening MM Disease Progression');
+plot(rocXtrain, rocYtrain, 'LineWidth', 2);
+x = linspace(0,1,100);
+plot(x, x, 'k-')
+hold off
+axis square
+legend('Test', 'Train', 'Location', 'southeast');
+title('ROC for Logistic Regression for Worsening Disease Progression');
 xlabel('False Positive Rate');
 ylabel('True Positive Rate');
+
 save2pdf('progression_logreg', 1);
 % pvals = stats.p;
 % pval_cutoff = 0.1;
