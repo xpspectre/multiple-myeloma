@@ -353,8 +353,13 @@ mdl = fitglm(X_train, 'ResponseVar', 'PROGRESSION');
 
 
 % Display sorted significant params
-sortrows(mdl.Coefficients, 'pValue')
-% mdl.Rsquared
+coefs = mdl.Coefficients;
+keep = coefs.pValue < 0.05;
+coefs = coefs(keep,:);
+coefs = sortrows(coefs, 'Estimate');
+coefs.SE = [];
+coefs.tStat = [];
+coefs
 
 % Run logistic regression on the whether or not the progression is positive
 % Outputs AUROC and ROC for the classifier on the test set
